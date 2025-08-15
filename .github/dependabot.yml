@@ -1,0 +1,60 @@
+version: 2
+updates:
+  # Python dependencies from requirements.txt (root)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+      timezone: "Asia/Jakarta"
+    open-pull-requests-limit: 10
+    labels:
+      - "deps"
+      - "pip"
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    # Group related updates to reduce PR noise
+    groups:
+      security-patches:
+        update-types:
+          - "patch"
+      flask-stack:
+        patterns:
+          - "Flask*"
+          - "werkzeug*"
+          - "Jinja2*"
+          - "itsdangerous*"
+          - "click*"
+      osint-stack:
+        patterns:
+          - "requests*"
+          - "beautifulsoup4*"
+          - "bs4*"
+          - "dnspython*"
+          - "python-whois*"
+          - "python-dotenv*"
+          - "weasyprint*"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+      timezone: "Asia/Jakarta"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "gh-actions"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
