@@ -57,7 +57,7 @@ import whois
 
 # ---------------- Config ----------------
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(HERE, 'threat_hunter.db')  # Windows-safe path
+DATABASE = os.path.join(HERE, 'aegis.db')  # Windows-safe path
 DEFAULT_TIMEOUT = 15
 USER_AGENT = "Mozilla/5.0 (AegisSparks/6.0; +https://security-life.org)"
 SESSION = requests.Session()
