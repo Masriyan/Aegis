@@ -1,4 +1,4 @@
-# AEGIS Fusion - Automated Enrichment & Global Intelligence Scanner
+# AEGIS - Automated Enrichment & Global Intelligence Scanner
 
 AEGIS (by sudo3rs) is a Windows-friendly single-file Flask app for rapid URL and domain reconnaissance. It stitches together passive OSINT, semi-offensive exposure checks, automation workflows, and reporting so blue/purple teams can move from "paste a URL" to "export evidence" in one pane.
 
