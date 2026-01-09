@@ -146,168 +146,707 @@ INDEX_HTML = r"""
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AEGIS — Automated Enrichment & Global Intelligence Scanner</title>
+  <title>AEGIS — Automated Enrichment &amp; Global Intelligence Scanner</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    #loadingOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:9999; }
-    .spinner { border:4px solid rgba(255,255,255,0.3); border-radius:50%; border-top:4px solid #3498db; width:40px; height:40px; animation:spin 1s linear infinite; }
-    @keyframes spin { 0% {transform:rotate(0deg);} 100% {transform:rotate(360deg);} }
+    :root {
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.5);
+      --accent: #8b5cf6;
+      --accent-glow: rgba(139, 92, 246, 0.4);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --glass-bg: rgba(17, 24, 39, 0.7);
+      --glass-border: rgba(75, 85, 99, 0.4);
+    }
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { 
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: 
+        radial-gradient(ellipse at 20% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(16, 185, 129, 0.08) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .content-wrapper { position: relative; z-index: 1; }
+    
+    /* Glassmorphism Cards */
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 1.5rem;
+      box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    .glass-card-sm {
+      background: rgba(30, 41, 59, 0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(71, 85, 105, 0.4);
+      border-radius: 0.75rem;
+    }
+    
+    /* Animated Gradient Title */
+    .gradient-title {
+      background: linear-gradient(135deg, #60a5fa, #a78bfa, #34d399, #60a5fa);
+      background-size: 300% 300%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: gradientFlow 8s ease infinite;
+    }
+    @keyframes gradientFlow {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    
+    /* Glow Effects */
+    .glow-blue { box-shadow: 0 0 20px var(--primary-glow), 0 0 40px rgba(59, 130, 246, 0.2); }
+    .glow-purple { box-shadow: 0 0 20px var(--accent-glow); }
+    .text-glow { text-shadow: 0 0 30px var(--primary-glow); }
+    
+    /* Button Styles */
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      border: none;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+    .btn-primary::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+      transition: left 0.5s ease;
+    }
+    .btn-primary:hover::before { left: 100%; }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 40px var(--primary-glow); }
+    
+    .btn-glass {
+      background: rgba(55, 65, 81, 0.5);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(107, 114, 128, 0.3);
+      transition: all 0.3s ease;
+    }
+    .btn-glass:hover {
+      background: rgba(75, 85, 99, 0.6);
+      border-color: var(--primary);
+      transform: translateY(-1px);
+    }
+    
+    /* Module Cards */
+    .module-card {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(71, 85, 105, 0.3);
+      border-radius: 0.75rem;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    .module-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .module-card:hover {
+      background: rgba(45, 55, 72, 0.6);
+      border-color: rgba(99, 102, 241, 0.4);
+      transform: translateY(-2px);
+    }
+    .module-card:hover::before { opacity: 1; }
+    .module-card.selected {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: var(--primary);
+    }
+    .module-card.selected::before { opacity: 1; }
+    
+    /* Input Styles */
+    .input-glass {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(71, 85, 105, 0.4);
+      transition: all 0.3s ease;
+    }
+    .input-glass:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 0 20px rgba(59, 130, 246, 0.1);
+      outline: none;
+    }
+    .input-glass::placeholder { color: rgba(156, 163, 175, 0.6); }
+    
+    /* Loading Overlay */
+    #loadingOverlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.95);
+      backdrop-filter: blur(10px);
+      z-index: 9999;
+    }
+    .loader-ring {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      border: 3px solid transparent;
+      border-top-color: var(--primary);
+      border-right-color: var(--accent);
+      animation: spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+      position: relative;
+    }
+    .loader-ring::before, .loader-ring::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      border: 3px solid transparent;
+    }
+    .loader-ring::before {
+      top: 8px; left: 8px; right: 8px; bottom: 8px;
+      border-top-color: var(--success);
+      animation: spin 1.8s cubic-bezier(0.5, 0, 0.5, 1) infinite reverse;
+    }
+    .loader-ring::after {
+      top: 18px; left: 18px; right: 18px; bottom: 18px;
+      border-top-color: var(--warning);
+      animation: spin 2.4s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    .progress-bar {
+      height: 4px;
+      background: rgba(55, 65, 81, 0.5);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 1.5rem;
+      width: 200px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent), var(--success));
+      background-size: 200% 100%;
+      animation: progressGradient 2s ease infinite, progressWidth 10s ease-in-out infinite;
+      border-radius: 2px;
+    }
+    @keyframes progressGradient {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    @keyframes progressWidth {
+      0% { width: 5%; }
+      50% { width: 70%; }
+      100% { width: 95%; }
+    }
+    
+    /* Floating Particles */
+    .particle {
+      position: fixed;
+      width: 4px; height: 4px;
+      background: var(--primary);
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0.3;
+      animation: float 20s infinite linear;
+    }
+    @keyframes float {
+      0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+      10% { opacity: 0.3; }
+      90% { opacity: 0.3; }
+      100% { transform: translateY(-100vh) rotate(720deg); opacity: 0; }
+    }
+    
+    /* Category Headers */
+    .category-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 0;
+      margin-bottom: 0.75rem;
+      border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+    }
+    .category-icon {
+      width: 32px; height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      font-size: 0.875rem;
+    }
+    
+    /* Smooth Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: rgba(17, 24, 39, 0.5); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(75, 85, 99, 0.6); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(107, 114, 128, 0.8); }
+    
+    /* Animations */
+    .fade-in { animation: fadeIn 0.5s ease forwards; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .stagger-1 { animation-delay: 0.1s; }
+    .stagger-2 { animation-delay: 0.2s; }
+    .stagger-3 { animation-delay: 0.3s; }
+    
+    /* Tooltip */
+    [data-tooltip] { position: relative; }
+    [data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 0.5rem 0.75rem;
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid rgba(75, 85, 99, 0.5);
+      border-radius: 0.5rem;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      z-index: 100;
+      margin-bottom: 0.5rem;
+    }
   </style>
 </head>
-<body class="bg-gray-900 text-gray-200 font-sans">
+<body class="text-gray-200">
+  <!-- Floating Particles -->
+  <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
+  <div class="particle" style="left: 25%; animation-delay: 3s; background: var(--accent);"></div>
+  <div class="particle" style="left: 45%; animation-delay: 7s;"></div>
+  <div class="particle" style="left: 65%; animation-delay: 2s; background: var(--success);"></div>
+  <div class="particle" style="left: 85%; animation-delay: 5s; background: var(--accent);"></div>
+  <div class="particle" style="left: 5%; animation-delay: 10s;"></div>
+  <div class="particle" style="left: 75%; animation-delay: 12s; background: var(--success);"></div>
+  <div class="particle" style="left: 35%; animation-delay: 15s;"></div>
+  
+  <!-- Loading Overlay -->
   <div id="loadingOverlay" class="flex items-center justify-center">
     <div class="text-center">
-      <div class="spinner mx-auto"></div>
-      <div class="text-white text-lg font-semibold mt-4">Hunting for Threats...</div>
-      <div class="text-gray-400 text-sm">Analyzing and enriching data</div>
+      <div class="loader-ring mx-auto"></div>
+      <div class="text-white text-xl font-semibold mt-6 text-glow">Hunting for Threats...</div>
+      <div class="text-gray-400 text-sm mt-2">Analyzing and enriching intelligence data</div>
+      <div class="progress-bar mx-auto">
+        <div class="progress-fill"></div>
+      </div>
+      <div id="loadingModules" class="text-gray-500 text-xs mt-3">Initializing modules...</div>
     </div>
   </div>
 
-  <div class="container mx-auto p-4 md:p-8">
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h1 class="text-4xl md:text-5xl font-bold text-blue-400">AEGIS by sudo3rs</h1>
-        <p class="text-gray-400 mt-2">Automated Enrichment & Global Intelligence Scanner. Windows-friendly.</p>
+  <div class="content-wrapper container mx-auto p-4 md:p-8 max-w-7xl">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 fade-in">
+      <div class="mb-4 md:mb-0">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue">
+            <i class="fas fa-shield-halved text-2xl text-white"></i>
+          </div>
+          <div>
+            <h1 class="text-3xl md:text-4xl font-bold gradient-title">AEGIS</h1>
+            <p class="text-xs text-gray-500 uppercase tracking-wider">by sudo3rs</p>
+          </div>
+        </div>
+        <p class="text-gray-400 text-sm md:text-base max-w-xl">
+          <span class="text-blue-400 font-medium">A</span>utomated <span class="text-blue-400 font-medium">E</span>nrichment &amp; 
+          <span class="text-purple-400 font-medium">G</span>lobal <span class="text-purple-400 font-medium">I</span>ntelligence 
+          <span class="text-green-400 font-medium">S</span>canner
+        </p>
       </div>
-      <div class="flex items-center gap-2">
-        <a href="/history" class="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded">History</a>
-        <a href="/scheduled" class="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded">Scheduled</a>
-        <button id="themeToggle" class="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded">Toggle theme</button>
-      </div>
-    </div>
+      <nav class="flex items-center gap-3">
+        <a href="/history" class="btn-glass px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+          <i class="fas fa-clock-rotate-left text-blue-400"></i> History
+        </a>
+        <a href="/scheduled" class="btn-glass px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+          <i class="fas fa-calendar-check text-purple-400"></i> Scheduled
+        </a>
+        <button id="themeToggle" class="btn-glass p-2 rounded-lg" data-tooltip="Toggle Theme">
+          <i class="fas fa-moon text-yellow-400"></i>
+        </button>
+      </nav>
+    </header>
 
-    <form id="scanForm" action="/scan" method="post" class="bg-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
-      <div class="grid md:grid-cols-3 gap-6">
+    <!-- Main Form -->
+    <form id="scanForm" action="/scan" method="post" class="glass-card p-6 md:p-8 fade-in stagger-1">
+      <!-- Target Input Section -->
+      <div class="grid md:grid-cols-4 gap-6 mb-8">
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium mb-2 text-blue-300">URL to Investigate</label>
-          <input type="url" name="url" placeholder="https://example.com" required
-                 class="w-full rounded-md bg-gray-700 border border-gray-600 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label class="block text-sm font-semibold mb-2 text-gray-300">
+            <i class="fas fa-crosshairs text-blue-400 mr-2"></i>Target URL
+          </label>
+          <div class="relative">
+            <input type="url" name="url" placeholder="https://example.com" required
+                   class="w-full rounded-xl input-glass px-4 py-3 text-white placeholder-gray-500 pr-12" />
+            <div class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+              <i class="fas fa-globe"></i>
+            </div>
+          </div>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-2 text-blue-300">Scan Mode</label>
-          <select name="mode" class="w-full rounded-md bg-gray-700 border border-gray-600 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="defensive" selected>Defensive</option>
-            <option value="semi">Semi-offensive</option>
+          <label class="block text-sm font-semibold mb-2 text-gray-300">
+            <i class="fas fa-sliders text-purple-400 mr-2"></i>Scan Mode
+          </label>
+          <select name="mode" class="w-full rounded-xl input-glass px-4 py-3 text-white cursor-pointer">
+            <option value="defensive" selected>🛡️ Defensive</option>
+            <option value="semi">⚔️ Semi-offensive</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-2 text-gray-300">
+            <i class="fas fa-wand-magic-sparkles text-green-400 mr-2"></i>Quick Preset
+          </label>
+          <select id="presetSelect" class="w-full rounded-xl input-glass px-4 py-3 text-white cursor-pointer">
+            <option value="">Select preset...</option>
+            <option value="recon">🔍 Recon (Passive OSINT)</option>
+            <option value="passive">🔒 Passive (Safe Defaults)</option>
+            <option value="semi">⚡ Semi-offensive (Authorized)</option>
           </select>
         </div>
       </div>
 
-      <div class="mt-4 flex items-center gap-3">
-        <label class="text-sm font-medium text-blue-300">Presets</label>
-        <select id="presetSelect" class="rounded-md bg-gray-700 border border-gray-600 px-3 py-2 text-sm">
-          <option value="">-- Choose preset --</option>
-          <option value="recon">Recon (Passive OSINT)</option>
-          <option value="passive">Passive (safe defaults)</option>
-          <option value="semi">Semi-offensive (authorized)</option>
-        </select>
-      </div>
-
-      <div class="mt-6">
-        <h3 class="text-sm font-medium text-blue-300 mb-3">Select Modules to Run</h3>
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {% for label, val in [
-            ('Crawler', 'crawler'), ('Tech Fingerprint', 'tech'), ('Security Headers', 'sec_headers'),
-            ('TLS Certificate', 'tls'), ('HTTP Headers', 'headers'), ('DNS Records', 'dns'),
-            ('WHOIS Lookup', 'whois'), ('Subdomain Scan', 'subdomains'), ('security.txt', 'security_txt'),
-            ('Robots.txt', 'robots_txt'), ('Passive DNS (SecurityTrails)', 'securitytrails'),
-            ('Signature Scan', 'signatures'), ('CVE Alerts', 'cve_alerts'), ('Cloud Assets', 'cloud_assets'),
-            ('VirusTotal', 'virustotal'), ('urlscan.io', 'urlscan'), ('AlienVault OTX', 'otx'),
-            ('Archive.org', 'archive'), ('GitHub Code', 'github'), ('Code Scan (GitHub)', 'code_scan'),
-            ('Shodan', 'shodan'), ('GreyNoise', 'greynoise'), ('AbuseIPDB', 'abuseipdb'),
-            ('Screenshot Capture', 'screenshot'), ('Param Fuzzer', 'fuzzer'),
-            ('Workflow Runner', 'workflow'), ('Sandbox Submission', 'sandbox'),
-            ('HIBP Exposure Watch', 'hibp'), ('Sensitive Path Probe', 'exposure_checks'),
-            ('OWASP Top 10', 'owasp_top10')
-          ] %}
-          <label class="flex items-center gap-2 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 cursor-pointer hover:bg-gray-600">
-            <input type="checkbox" name="services" value="{{ val }}" class="h-4 w-4 text-blue-500 bg-gray-600 border-gray-500 rounded focus:ring-blue-500">
-            <span class="text-sm">{{ label }}</span>
-          </label>
-          {% endfor %}
+      <!-- Modules Section -->
+      <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+            <i class="fas fa-puzzle-piece text-blue-400"></i> Reconnaissance Modules
+          </h3>
+          <div class="flex gap-2">
+            <button type="button" id="selectAll" class="text-xs btn-glass px-3 py-1.5 rounded-lg">
+              <i class="fas fa-check-double mr-1"></i> Select All
+            </button>
+            <button type="button" id="clearAll" class="text-xs btn-glass px-3 py-1.5 rounded-lg">
+              <i class="fas fa-times mr-1"></i> Clear All
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div class="mt-6 grid md:grid-cols-2 gap-6">
+        
+        <!-- Discovery Modules -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-blue-500/20 text-blue-400"><i class="fas fa-magnifying-glass"></i></div>
+            <span class="text-sm font-medium text-gray-400">Discovery & Fingerprinting</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Crawler', 'crawler', 'fa-spider'),
+              ('Tech Fingerprint', 'tech', 'fa-microchip'),
+              ('HTTP Headers', 'headers', 'fa-server'),
+              ('Security Headers', 'sec_headers', 'fa-shield'),
+              ('TLS Certificate', 'tls', 'fa-lock')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:bg-blue-500/20 peer-checked:bg-blue-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <!-- DNS & Domain Modules -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-purple-500/20 text-purple-400"><i class="fas fa-network-wired"></i></div>
+            <span class="text-sm font-medium text-gray-400">DNS & Domain Intelligence</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('DNS Records', 'dns', 'fa-diagram-project'),
+              ('WHOIS Lookup', 'whois', 'fa-address-card'),
+              ('Subdomain Scan', 'subdomains', 'fa-sitemap'),
+              ('SecurityTrails', 'securitytrails', 'fa-route'),
+              ('Cloud Assets', 'cloud_assets', 'fa-cloud')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400 group-hover:bg-purple-500/20 peer-checked:bg-purple-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <!-- Threat Intel Modules -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-red-500/20 text-red-400"><i class="fas fa-biohazard"></i></div>
+            <span class="text-sm font-medium text-gray-400">Threat Intelligence</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('VirusTotal', 'virustotal', 'fa-virus'),
+              ('urlscan.io', 'urlscan', 'fa-eye'),
+              ('AlienVault OTX', 'otx', 'fa-user-secret'),
+              ('Shodan', 'shodan', 'fa-satellite-dish'),
+              ('GreyNoise', 'greynoise', 'fa-broadcast-tower'),
+              ('AbuseIPDB', 'abuseipdb', 'fa-ban'),
+              ('GitHub Code', 'github', 'fa-brands fa-github'),
+              ('Code Scan', 'code_scan', 'fa-code'),
+              ('Archive.org', 'archive', 'fa-box-archive'),
+              ('HIBP Check', 'hibp', 'fa-user-lock')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center text-red-400 group-hover:bg-red-500/20 peer-checked:bg-red-500 peer-checked:text-white transition-all">
+                <i class="{{ 'fab' if 'brands' in icon else 'fas' }} {{ icon.replace('fa-brands ', '') }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <!-- Security Analysis Modules -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-yellow-500/20 text-yellow-400"><i class="fas fa-triangle-exclamation"></i></div>
+            <span class="text-sm font-medium text-gray-400">Security Analysis</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('security.txt', 'security_txt', 'fa-file-shield'),
+              ('Robots.txt', 'robots_txt', 'fa-robot'),
+              ('Signature Scan', 'signatures', 'fa-fingerprint'),
+              ('CVE Alerts', 'cve_alerts', 'fa-bug'),
+              ('OWASP Top 10', 'owasp_top10', 'fa-list-check'),
+              ('Exposure Probe', 'exposure_checks', 'fa-door-open'),
+              ('Param Fuzzer', 'fuzzer', 'fa-shuffle'),
+              ('WAF Detection', 'waf_detect', 'fa-shield-halved'),
+              ('Email Security', 'email_security', 'fa-envelope-circle-check'),
+              ('Port Scanner', 'port_scan', 'fa-network-wired'),
+              ('ASN Lookup', 'asn_lookup', 'fa-building'),
+              ('Favicon Hash', 'favicon_hash', 'fa-image'),
+              ('SSL/TLS Audit', 'ssl_tls', 'fa-lock'),
+              ('Takeover Check', 'subdomain_takeover', 'fa-skull-crossbones'),
+              ('HTTP Methods', 'http_methods', 'fa-arrows-left-right'),
+              ('CORS Check', 'cors', 'fa-link-slash'),
+              ('Cookie Audit', 'cookie_audit', 'fa-cookie-bite'),
+              ('JS Secrets', 'js_secrets', 'fa-key')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center text-yellow-400 group-hover:bg-yellow-500/20 peer-checked:bg-yellow-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <!-- Automation Modules -->
         <div>
-          <label class="block text-sm font-medium mb-2 text-blue-300">Custom Subdomain Words</label>
-          <textarea name="extra_subdomains" rows="4" placeholder="admin\nportal\nblue-team"
-                    class="w-full rounded-md bg-gray-700 border border-gray-600 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-          <p class="text-xs text-gray-400 mt-1">One per line (commas OK). Added to bruteforce list when applicable.</p>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-2 text-blue-300">Custom Exposure Paths</label>
-          <textarea name="extra_exposures" rows="4" placeholder="/backup.tgz\nhigh::/admin/.env"
-                    class="w-full rounded-md bg-gray-700 border border-gray-600 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-          <p class="text-xs text-gray-400 mt-1">Prefix with <code>high::</code>, <code>medium::</code>, or <code>low::</code> to set severity.</p>
+          <div class="category-header">
+            <div class="category-icon bg-green-500/20 text-green-400"><i class="fas fa-robot"></i></div>
+            <span class="text-sm font-medium text-gray-400">Automation & Capture</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Screenshot', 'screenshot', 'fa-camera'),
+              ('Workflow Runner', 'workflow', 'fa-gears'),
+              ('Sandbox Submit', 'sandbox', 'fa-flask')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-400 group-hover:bg-green-500/20 peer-checked:bg-green-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
       </div>
 
-      <div class="mt-6">
-        <label class="block text-sm font-medium mb-2 text-blue-300">Workflow JSON (optional)</label>
-        <textarea name="workflow_steps" rows="4" placeholder='[{"action":"click","selector":"#login"}]'
-                  class="w-full rounded-md bg-gray-700 border border-gray-600 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-        <p class="text-xs text-gray-400 mt-1">Provide Playwright-style steps when enabling the Workflow Runner.</p>
-      </div>
-
-      <div class="mt-8 flex items-center justify-between">
-        <div>
-          <span class="text-sm font-medium text-blue-300">Output Format:</span>
-          <label class="inline-flex items-center gap-1 ml-2">
-            <input type="radio" name="view_mode" value="human" checked class="h-4 w-4 text-blue-500">
-            <span class="text-sm">Human-readable</span>
-          </label>
-          <label class="inline-flex items-center gap-1 ml-4">
-            <input type="radio" name="view_mode" value="json" class="h-4 w-4 text-blue-500">
-            <span class="text-sm">JSON</span>
-          </label>
+      <!-- Advanced Options -->
+      <details class="mb-8 group">
+        <summary class="cursor-pointer text-sm font-semibold text-gray-400 hover:text-white transition-colors flex items-center gap-2">
+          <i class="fas fa-chevron-right transition-transform group-open:rotate-90"></i>
+          <i class="fas fa-sliders text-purple-400"></i> Advanced Options
+        </summary>
+        <div class="mt-4 grid md:grid-cols-2 gap-6 pl-6">
+          <div>
+            <label class="block text-sm font-medium mb-2 text-gray-300">
+              <i class="fas fa-list text-blue-400 mr-2"></i>Custom Subdomain Words
+            </label>
+            <textarea name="extra_subdomains" rows="3" placeholder="admin&#10;portal&#10;staging"
+                      class="w-full rounded-xl input-glass px-4 py-3 text-sm text-white resize-none"></textarea>
+            <p class="text-xs text-gray-500 mt-1">One per line. Added to bruteforce wordlist.</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-2 text-gray-300">
+              <i class="fas fa-folder-open text-yellow-400 mr-2"></i>Custom Exposure Paths
+            </label>
+            <textarea name="extra_exposures" rows="3" placeholder="/backup.tgz&#10;high::/admin/.env"
+                      class="w-full rounded-xl input-glass px-4 py-3 text-sm text-white resize-none"></textarea>
+            <p class="text-xs text-gray-500 mt-1">Prefix with <code class="text-red-400">high::</code>, <code class="text-yellow-400">medium::</code>, or <code class="text-blue-400">low::</code></p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium mb-2 text-gray-300">
+              <i class="fas fa-code text-green-400 mr-2"></i>Workflow Steps (JSON)
+            </label>
+            <textarea name="workflow_steps" rows="3" placeholder='[{"action":"click","selector":"#login"},{"action":"type","selector":"#user","value":"test"}]'
+                      class="w-full rounded-xl input-glass px-4 py-3 text-sm text-white font-mono resize-none"></textarea>
+            <p class="text-xs text-gray-500 mt-1">Playwright-style automation steps for the Workflow Runner module.</p>
+          </div>
         </div>
-        <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-full transition duration-300">
-          <i class="fas fa-search mr-2"></i>Start Hunt
+      </details>
+
+      <!-- Output Options & Submit -->
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pt-6 border-t border-gray-700/50">
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-gray-400"><i class="fas fa-file-export mr-1"></i>Output:</span>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="view_mode" value="human" checked class="hidden peer">
+              <span class="px-3 py-1.5 text-xs rounded-lg border border-gray-600 peer-checked:border-blue-500 peer-checked:bg-blue-500/20 peer-checked:text-blue-400 transition-all">
+                <i class="fas fa-user mr-1"></i>Human
+              </span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="view_mode" value="json" class="hidden peer">
+              <span class="px-3 py-1.5 text-xs rounded-lg border border-gray-600 peer-checked:border-green-500 peer-checked:bg-green-500/20 peer-checked:text-green-400 transition-all">
+                <i class="fas fa-code mr-1"></i>JSON
+              </span>
+            </label>
+          </div>
+          <div class="flex items-center gap-2">
+            <i class="fas fa-clock text-gray-500"></i>
+            <input type="number" name="schedule_minutes" min="0" placeholder="0"
+                   class="w-20 rounded-lg input-glass px-3 py-2 text-sm text-center" />
+            <span class="text-xs text-gray-500">min interval</span>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary text-white font-bold px-8 py-3 rounded-xl flex items-center gap-3 text-base">
+          <i class="fas fa-crosshairs"></i>
+          <span>Start Hunt</span>
+          <i class="fas fa-arrow-right"></i>
         </button>
       </div>
-
-      <div class="mt-6">
-        <label class="block text-sm font-medium mb-2 text-blue-300">Schedule (minutes)</label>
-        <input type="number" name="schedule_minutes" min="0" placeholder="0"
-               class="w-40 rounded-md bg-gray-700 border border-gray-600 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        <p class="text-xs text-gray-400 mt-1">Enter minutes (>0) to queue recurring scans. They run sequentially when the app is active.</p>
-      </div>
     </form>
+
+    <!-- Footer -->
+    <footer class="mt-8 text-center text-xs text-gray-600 fade-in stagger-3">
+      <p>AEGIS v2.0 — Threat Hunter Swiss Army Knife</p>
+      <p class="mt-1">For authorized security testing only. <a href="https://security-life.org" class="text-blue-500 hover:underline">security-life.org</a></p>
+    </footer>
   </div>
 
   <script>
     const form = document.getElementById('scanForm');
     const overlay = document.getElementById('loadingOverlay');
-    form.addEventListener('submit', function() { overlay.style.display = 'flex'; });
+    const loadingModules = document.getElementById('loadingModules');
+    
+    const moduleMessages = [
+      'Initializing reconnaissance modules...',
+      'Preparing threat intelligence feeds...',
+      'Configuring subdomain enumeration...',
+      'Setting up vulnerability scanners...',
+      'Connecting to OSINT sources...',
+      'Analyzing target infrastructure...',
+      'Gathering security headers...',
+      'Querying threat databases...',
+      'Processing DNS records...',
+      'Finalizing scan parameters...'
+    ];
+    
+    form.addEventListener('submit', function() {
+      overlay.style.display = 'flex';
+      let msgIndex = 0;
+      setInterval(() => {
+        loadingModules.textContent = moduleMessages[msgIndex % moduleMessages.length];
+        msgIndex++;
+      }, 2000);
+    });
 
-    // Presets
+    // Module card selection visual feedback
+    document.querySelectorAll('.module-card input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', function() {
+        this.closest('.module-card').classList.toggle('selected', this.checked);
+      });
+    });
+
+    // Presets with new modules
     const presets = {
-      recon:   ["crawler","tech","headers","sec_headers","dns","whois","archive","urlscan","github","code_scan","security_txt","robots_txt","securitytrails","signatures","cve_alerts","owasp_top10"],
+      recon: ["crawler","tech","headers","sec_headers","dns","whois","archive","urlscan","github","code_scan","security_txt","robots_txt","securitytrails","signatures","cve_alerts","owasp_top10"],
       passive: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","virustotal","urlscan","otx","hibp","shodan","greynoise","abuseipdb","cloud_assets","owasp_top10"],
-      semi:    ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","screenshot","virustotal","urlscan","otx","code_scan","hibp","shodan","greynoise","abuseipdb","exposure_checks","fuzzer","workflow","sandbox","owasp_top10"]
+      semi: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","screenshot","virustotal","urlscan","otx","code_scan","hibp","shodan","greynoise","abuseipdb","exposure_checks","fuzzer","workflow","sandbox","owasp_top10"]
     };
+    
     document.getElementById('presetSelect').addEventListener('change', (e) => {
       const vals = presets[e.target.value] || [];
-      document.querySelectorAll('input[name="services"]').forEach(cb => cb.checked = false);
+      document.querySelectorAll('.module-card input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.module-card').classList.remove('selected');
+      });
       vals.forEach(v => {
         const cb = document.querySelector(`input[name="services"][value="${v}"]`);
-        if (cb) cb.checked = true;
+        if (cb) {
+          cb.checked = true;
+          cb.closest('.module-card').classList.add('selected');
+        }
       });
       if (e.target.value === 'semi') {
         document.querySelector('select[name="mode"]').value = 'semi';
       }
     });
 
-    // Theme toggle (simple invert trick)
+    // Select All / Clear All
+    document.getElementById('selectAll').addEventListener('click', () => {
+      document.querySelectorAll('.module-card input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+        cb.closest('.module-card').classList.add('selected');
+      });
+    });
+    document.getElementById('clearAll').addEventListener('click', () => {
+      document.querySelectorAll('.module-card input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.module-card').classList.remove('selected');
+      });
+    });
+
+    // Theme toggle
     const toggle = document.getElementById('themeToggle');
     if (toggle) {
       toggle.addEventListener('click', () => {
         document.documentElement.classList.toggle('invert');
-        document.body.classList.toggle('bg-white');
-        document.body.classList.toggle('text-gray-900');
+        const icon = toggle.querySelector('i');
+        icon.classList.toggle('fa-moon');
+        icon.classList.toggle('fa-sun');
       });
     }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        switch(e.key) {
+          case 'Enter':
+            e.preventDefault();
+            form.submit();
+            break;
+          case 'a':
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+              e.preventDefault();
+              document.getElementById('selectAll').click();
+            }
+            break;
+        }
+      }
+    });
   </script>
 </body>
 </html>
@@ -319,100 +858,247 @@ RESULTS_HTML = r"""
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Threat Hunt Results</title>
+  <title>AEGIS — Threat Hunt Results</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    .result-card { background-color: #1f2937; border: 1px solid #374151; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; }
-    .result-title { color: #60a5fa; font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem; }
-    .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
-    .ok { background-color: #10b981; color:white; }
-    .warn { background-color: #f59e0b; color:white; }
-    .bad { background-color: #ef4444; color:white; }
-    .badge.sev-high { background-color: #dc2626; color:white; }
-    .badge.sev-medium { background-color: #f97316; color:white; }
-    .badge.sev-low { background-color: #0ea5e9; color:white; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px 12px; border: 1px solid #374151; text-align: left; }
-    th { background-color: #374151; }
-    details summary { cursor: pointer; }
+    * { font-family: 'Inter', sans-serif; }
+    
+    /* Animated gradient background */
+    .bg-animated {
+      background: linear-gradient(-45deg, #0f0f23, #1a1a3e, #0d1b2a, #1b263b);
+      background-size: 400% 400%;
+      animation: gradientShift 15s ease infinite;
+    }
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    
+    /* Floating particles */
+    .particles { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; z-index: 0; }
+    .particle { position: absolute; width: 4px; height: 4px; background: rgba(96, 165, 250, 0.4); border-radius: 50%; animation: float 20s infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(100vh) rotate(0deg); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(-10vh) rotate(720deg); opacity: 0; } }
+    
+    /* Glassmorphism cards */
+    .glass-card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      border-radius: 1rem;
+      transition: all 0.3s ease;
+    }
+    .glass-card:hover {
+      background: rgba(30, 41, 59, 0.85);
+      border-color: rgba(96, 165, 250, 0.3);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      transform: translateY(-2px);
+    }
+    
+    /* Result cards */
+    .result-card {
+      background: rgba(30, 41, 59, 0.6);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      transition: all 0.3s ease;
+    }
+    .result-card:hover { border-color: rgba(96, 165, 250, 0.4); }
+    .result-card[open] { border-color: rgba(96, 165, 250, 0.5); background: rgba(30, 41, 59, 0.8); }
+    
+    .result-title { color: #60a5fa; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; }
+    .result-title:hover { color: #93c5fd; }
+    .result-title i { font-size: 0.9rem; opacity: 0.7; }
+    
+    /* Summary stat cards */
+    .stat-card {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(30, 41, 59, 0.4) 100%);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 1rem;
+      padding: 1.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 3px;
+      background: linear-gradient(90deg, var(--accent-color, #3b82f6), transparent);
+    }
+    .stat-card .stat-icon { position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); font-size: 2.5rem; opacity: 0.1; }
+    
+    /* Badges */
+    .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .ok { background: linear-gradient(135deg, #10b981, #059669); color: white; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3); }
+    .warn { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3); }
+    .bad { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3); }
+    .badge.sev-high { background: linear-gradient(135deg, #dc2626, #b91c1c); box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4); }
+    .badge.sev-medium { background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3); }
+    .badge.sev-low { background: linear-gradient(135deg, #0ea5e9, #0284c7); box-shadow: 0 2px 8px rgba(14, 165, 233, 0.3); }
+    
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
+    th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid rgba(148, 163, 184, 0.1); }
+    th { background: rgba(30, 41, 59, 0.5); color: #94a3b8; font-weight: 500; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    tbody tr:hover { background: rgba(96, 165, 250, 0.05); }
+    
+    /* Risk score ring */
+    .risk-ring { width: 100px; height: 100px; position: relative; }
+    .risk-ring svg { transform: rotate(-90deg); }
+    .risk-ring circle { fill: none; stroke-width: 8; stroke-linecap: round; }
+    .risk-ring .bg { stroke: rgba(148, 163, 184, 0.2); }
+    .risk-ring .progress { stroke: var(--ring-color, #3b82f6); transition: stroke-dashoffset 1s ease; }
+    .risk-ring .value { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.5rem; font-weight: 700; }
+    
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.25rem; border-radius: 0.75rem; font-weight: 500; font-size: 0.85rem; transition: all 0.2s ease; }
+    .btn-primary { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+    .btn-primary:hover { background: linear-gradient(135deg, #60a5fa, #3b82f6); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
+    .btn-secondary { background: rgba(51, 65, 85, 0.7); color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.2); }
+    .btn-secondary:hover { background: rgba(71, 85, 105, 0.8); border-color: rgba(148, 163, 184, 0.4); }
+    
+    /* Details animation */
+    details[open] summary ~ * { animation: slideDown 0.3s ease; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::after { content: '\f078'; font-family: 'Font Awesome 6 Free'; font-weight: 900; margin-left: auto; font-size: 0.75rem; transition: transform 0.3s ease; }
+    details[open] summary::after { transform: rotate(180deg); }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: rgba(30, 41, 59, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.5); }
   </style>
 </head>
-<body class="bg-gray-900 text-gray-200 font-sans">
-  <div class="container mx-auto p-4 md:p-8">
+<body class="bg-animated text-gray-200 min-h-screen">
+  <!-- Floating Particles -->
+  <div class="particles">
+    <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
+    <div class="particle" style="left: 20%; animation-delay: 2s;"></div>
+    <div class="particle" style="left: 40%; animation-delay: 4s;"></div>
+    <div class="particle" style="left: 60%; animation-delay: 1s;"></div>
+    <div class="particle" style="left: 80%; animation-delay: 3s;"></div>
+    <div class="particle" style="left: 90%; animation-delay: 5s;"></div>
+  </div>
+
+  <div class="container mx-auto p-4 md:p-8 relative z-10">
+    <!-- Header -->
     <div class="text-center mb-8">
-      <h1 class="text-3xl md:text-4xl font-bold text-blue-400">Threat Hunt Results</h1>
-      <p class="text-gray-400 mt-2">Analysis for: <a href="{{ url }}" class="text-blue-500 hover:underline" target="_blank">{{ url }}</a></p>
+      <div class="inline-flex items-center gap-3 mb-4">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+          <i class="fas fa-shield-halved text-white text-xl"></i>
+        </div>
+        <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+          Threat Hunt Results
+        </h1>
+      </div>
+      <p class="text-gray-400">
+        Analysis for: <a href="{{ url }}" class="text-blue-400 hover:text-blue-300 hover:underline transition-colors" target="_blank">{{ url }}</a>
+      </p>
     </div>
 
+    <!-- Summary Cards -->
     {% if results.get('_summary') %}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <div class="bg-gray-800 border border-gray-700 rounded p-3">
-        <div class="text-sm text-gray-400">Subdomains</div>
-        <div class="text-2xl font-bold">{{ results['_summary']['subdomains'] }}</div>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+      <div class="stat-card" style="--accent-color: #10b981;">
+        <i class="fas fa-sitemap stat-icon text-green-400"></i>
+        <div class="text-xs text-gray-400 mb-1">Subdomains</div>
+        <div class="text-2xl font-bold text-green-400">{{ results['_summary']['subdomains'] }}</div>
       </div>
-      <div class="bg-gray-800 border border-gray-700 rounded p-3">
-        <div class="text-sm text-gray-400">Missing Sec Headers</div>
-        <div class="text-2xl font-bold">{{ results['_summary']['missing_sec_headers'] }}</div>
+      <div class="stat-card" style="--accent-color: #f59e0b;">
+        <i class="fas fa-shield-xmark stat-icon text-yellow-400"></i>
+        <div class="text-xs text-gray-400 mb-1">Missing Headers</div>
+        <div class="text-2xl font-bold text-yellow-400">{{ results['_summary']['missing_sec_headers'] }}</div>
       </div>
-      <div class="bg-gray-800 border border-gray-700 rounded p-3">
-        <div class="text-sm text-gray-400">VT Malicious</div>
-        <div class="text-2xl font-bold">{{ results['_summary']['vt_malicious'] }}</div>
+      <div class="stat-card" style="--accent-color: #ef4444;">
+        <i class="fas fa-virus stat-icon text-red-400"></i>
+        <div class="text-xs text-gray-400 mb-1">VT Malicious</div>
+        <div class="text-2xl font-bold text-red-400">{{ results['_summary']['vt_malicious'] }}</div>
       </div>
-      <div class="bg-gray-800 border border-gray-700 rounded p-3">
-        <div class="text-sm text-gray-400">Risk Score</div>
-        <div class="text-2xl font-bold">{{ results['_summary']['risk_score'] }} <span class="text-sm uppercase ml-1">{{ results['_summary']['risk_level'] }}</span></div>
+      <div class="stat-card" style="--accent-color: #3b82f6;">
+        <i class="fas fa-clock stat-icon text-blue-400"></i>
+        <div class="text-xs text-gray-400 mb-1">Duration</div>
+        <div class="text-2xl font-bold text-blue-400">{{ results.get('_meta', {}).get('total_seconds', '-') }}s</div>
       </div>
-      <div class="bg-gray-800 border border-gray-700 rounded p-3">
-        <div class="text-sm text-gray-400">Duration (s)</div>
-        <div class="text-2xl font-bold">{{ results.get('_meta', {}).get('total_seconds', '-') }}</div>
+      <div class="stat-card col-span-2" style="--accent-color: {% if results['_summary']['risk_level'] == 'critical' %}#dc2626{% elif results['_summary']['risk_level'] == 'high' %}#f97316{% elif results['_summary']['risk_level'] == 'medium' %}#f59e0b{% else %}#10b981{% endif %};">
+        <i class="fas fa-gauge-high stat-icon"></i>
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs text-gray-400 mb-1">Risk Score</div>
+            <div class="text-3xl font-bold">{{ results['_summary']['risk_score'] }}</div>
+          </div>
+          <div class="text-right">
+            <span class="badge {% if results['_summary']['risk_level'] == 'critical' %}bad{% elif results['_summary']['risk_level'] == 'high' %}sev-high{% elif results['_summary']['risk_level'] == 'medium' %}warn{% else %}ok{% endif %}">
+              {{ results['_summary']['risk_level']|upper }}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
     {% endif %}
 
-    {% if scan_id %}
-    <div class="mb-6">
-      <a href="/graph/{{ scan_id }}" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded text-sm">View Relationship Graph</a>
+    <!-- Action Buttons -->
+    <div class="glass-card p-4 mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+          <button id="btnHuman" class="btn {% if view_mode == 'human' %}btn-primary{% else %}btn-secondary{% endif %}">
+            <i class="fas fa-eye"></i> Human View
+          </button>
+          <button id="btnJSON" class="btn {% if view_mode == 'json' %}btn-primary{% else %}btn-secondary{% endif %}">
+            <i class="fas fa-code"></i> JSON
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          {% if scan_id %}
+          <a href="/view/{{ scan_id }}" class="btn btn-secondary"><i class="fas fa-link"></i> Permalink</a>
+          <a href="/graph/{{ scan_id }}" class="btn btn-secondary"><i class="fas fa-diagram-project"></i> Graph</a>
+          {% endif %}
+          <a href="/export/json" class="btn btn-secondary"><i class="fas fa-file-code"></i> JSON</a>
+          <a href="/export/csv" class="btn btn-secondary"><i class="fas fa-file-csv"></i> CSV</a>
+          {% if pdf_available %}
+          <a href="/export/pdf" class="btn btn-primary"><i class="fas fa-file-pdf"></i> PDF</a>
+          {% endif %}
+        </div>
+      </div>
     </div>
-    {% endif %}
 
+    <!-- Filter and Controls -->
+    <div class="flex flex-wrap items-center gap-3 mb-6">
+      <div class="flex-1 min-w-[200px]">
+        <div class="relative">
+          <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+          <input id="resultFilter" type="text" placeholder="Filter results..."
+                 class="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-sm focus:outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all">
+        </div>
+      </div>
+      <button id="btnExpandAll" class="btn btn-secondary"><i class="fas fa-expand"></i> Expand All</button>
+      <button id="btnCollapseAll" class="btn btn-secondary"><i class="fas fa-compress"></i> Collapse All</button>
+    </div>
+
+    <!-- Module Timings (collapsible) -->
     {% if results.get('_meta', {}).get('module_times') %}
-    <details class="mb-6">
-      <summary class="cursor-pointer text-blue-400">Module timings</summary>
-      <table class="mt-3 w-full border border-gray-700">
-        <thead class="bg-gray-800"><tr><th class="p-2 text-left">Module</th><th class="p-2 text-left">Seconds</th></tr></thead>
-        <tbody>
+    <details class="result-card mb-6">
+      <summary class="result-title"><i class="fas fa-stopwatch"></i> Module Timings</summary>
+      <div class="mt-4">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           {% for m, secs in results['_meta']['module_times'].items() %}
-          <tr class="border-t border-gray-700"><td class="p-2">{{ m }}</td><td class="p-2">{{ secs }}</td></tr>
+          <div class="flex justify-between items-center bg-slate-800/40 rounded-lg px-3 py-2">
+            <span class="text-sm text-gray-300">{{ m.replace('_', ' ').title() }}</span>
+            <span class="text-sm font-mono text-blue-400">{{ secs }}s</span>
+          </div>
           {% endfor %}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </details>
     {% endif %}
-
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <button id="btnHuman" class="px-4 py-2 text-sm font-semibold rounded-l-lg {% if view_mode == 'human' %}bg-blue-600{% else %}bg-gray-700{% endif %}">Human-readable</button>
-        <button id="btnJSON" class="px-4 py-2 text-sm font-semibold rounded-r-lg {% if view_mode == 'json' %}bg-blue-600{% else %}bg-gray-700{% endif %}">JSON</button>
-      </div>
-      <div class="flex items-center space-x-2">
-        {% if scan_id %}
-          <a href="/view/{{ scan_id }}" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm font-semibold"><i class="fas fa-link mr-1"></i>Permalink</a>
-        {% endif %}
-        <a href="/export/json" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm font-semibold"><i class="fas fa-file-code mr-1"></i>Export JSON</a>
-        <a href="/export/csv" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm font-semibold"><i class="fas fa-file-csv mr-1"></i>Export CSV</a>
-        {% if pdf_available %}
-        <a href="/export/pdf" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-full text-sm font-semibold"><i class="fas fa-file-pdf mr-1"></i>Export PDF</a>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="flex items-center gap-3 mb-4">
-      <input id="resultFilter" type="text" placeholder="Filter results (module name or text)…"
-             class="w-full md:w-1/2 rounded-md bg-gray-800 border border-gray-700 px-3 py-2 text-sm">
-      <button id="btnExpandAll" class="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded text-sm">Expand all</button>
-      <button id="btnCollapseAll" class="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded text-sm">Collapse all</button>
-    </div>
 
     <!-- Human View -->
     <div id="humanView" class="{% if view_mode != 'human' %}hidden{% endif %} space-y-6">
@@ -424,21 +1110,130 @@ RESULTS_HTML = r"""
           <p class="text-red-400">Error: {{ value.error }}</p>
 
         {% elif key == 'crawler' %}
-          <table>
-            <tr><th>Type</th><th>Count</th><th>Details</th></tr>
-            <tr><td>Pages Found</td><td>{{ value.urls|length }}</td>
-              <td><details><summary class="text-blue-400">View</summary>
-                <ul class="list-disc pl-5 mt-2">{% for u in value.urls %}<li><a href="{{ u }}" target="_blank" class="hover:underline">{{ u }}</a></li>{% endfor %}</ul>
-              </details></td></tr>
-            <tr><td>External Links</td><td>{{ value.external_links|length }}</td>
-              <td><details><summary class="text-blue-400">View</summary>
-                <ul class="list-disc pl-5 mt-2">{% for l in value.external_links %}<li><a href="{{ l }}" target="_blank" class="hover:underline">{{ l }}</a></li>{% endfor %}</ul>
-              </details></td></tr>
-            <tr><td>Emails Found</td><td>{{ value.emails|length }}</td>
-              <td><details><summary class="text-blue-400">View</summary>
-                <ul class="list-disc pl-5 mt-2">{% for e in value.emails %}<li>{{ e }}</li>{% endfor %}</ul>
-              </details></td></tr>
-          </table>
+          <!-- Crawler Stats -->
+          {% if value.get('stats') %}
+          <div class="flex gap-4 mb-4 text-sm">
+            <span class="text-gray-400">Pages Scanned: <span class="text-blue-400 font-semibold">{{ value.stats.pages_scanned }}</span></span>
+            <span class="text-gray-400">Errors: <span class="text-red-400 font-semibold">{{ value.stats.errors }}</span></span>
+          </div>
+          {% endif %}
+          
+          <div class="grid md:grid-cols-2 gap-4">
+            <!-- Pages Found -->
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-file-lines mr-2 text-blue-400"></i>Pages Found</span>
+                <span class="badge ok">{{ value.urls|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-sm cursor-pointer">View pages</summary>
+                <ul class="list-disc pl-5 mt-2 text-sm max-h-40 overflow-y-auto">{% for u in value.urls[:30] %}<li><a href="{{ u }}" target="_blank" class="hover:underline text-gray-300 truncate block">{{ u }}</a></li>{% endfor %}</ul>
+              </details>
+            </div>
+            
+            <!-- External Links -->
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-external-link mr-2 text-purple-400"></i>External Links</span>
+                <span class="badge warn">{{ value.external_links|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-sm cursor-pointer">View links</summary>
+                <ul class="list-disc pl-5 mt-2 text-sm max-h-40 overflow-y-auto">{% for l in value.external_links[:30] %}<li><a href="{{ l }}" target="_blank" class="hover:underline text-gray-300 truncate block">{{ l }}</a></li>{% endfor %}</ul>
+              </details>
+            </div>
+            
+            <!-- Emails -->
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-envelope mr-2 text-green-400"></i>Emails Found</span>
+                <span class="badge {% if value.emails|length > 0 %}ok{% else %}warn{% endif %}">{{ value.emails|length }}</span>
+              </div>
+              {% if value.emails %}<ul class="text-sm text-gray-300">{% for e in value.emails[:15] %}<li class="py-1">{{ e }}</li>{% endfor %}</ul>{% else %}<span class="text-gray-500 text-sm">None found</span>{% endif %}
+            </div>
+            
+            <!-- Phone Numbers -->
+            {% if value.get('phone_numbers') %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-phone mr-2 text-yellow-400"></i>Phone Numbers</span>
+                <span class="badge ok">{{ value.phone_numbers|length }}</span>
+              </div>
+              <ul class="text-sm text-gray-300">{% for p in value.phone_numbers[:10] %}<li class="py-1">{{ p }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+            
+            <!-- Forms -->
+            {% if value.get('forms') %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-rectangle-list mr-2 text-orange-400"></i>Forms Detected</span>
+                <span class="badge warn">{{ value.forms|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-sm cursor-pointer">View forms</summary>
+                <div class="mt-2 space-y-2">
+                  {% for f in value.forms[:10] %}
+                  <div class="bg-slate-900/50 rounded p-2 text-xs">
+                    <div><span class="badge {% if f.method == 'POST' %}warn{% else %}ok{% endif %}">{{ f.method }}</span> {{ f.action }}</div>
+                    <div class="text-gray-500 mt-1">Inputs: {{ f.inputs|map(attribute='name')|list|join(', ') }}</div>
+                  </div>
+                  {% endfor %}
+                </div>
+              </details>
+            </div>
+            {% endif %}
+            
+            <!-- JavaScript Files -->
+            {% if value.get('js_files') %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fab fa-js mr-2 text-yellow-300"></i>JavaScript Files</span>
+                <span class="badge ok">{{ value.js_files|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-sm cursor-pointer">View files</summary>
+                <ul class="list-disc pl-5 mt-2 text-sm max-h-40 overflow-y-auto">{% for js in value.js_files[:20] %}<li class="truncate"><a href="{{ js }}" target="_blank" class="hover:underline text-gray-300">{{ js }}</a></li>{% endfor %}</ul>
+              </details>
+            </div>
+            {% endif %}
+            
+            <!-- API Endpoints -->
+            {% if value.get('api_endpoints') %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-code mr-2 text-cyan-400"></i>API Endpoints</span>
+                <span class="badge sev-medium">{{ value.api_endpoints|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-sm cursor-pointer">View endpoints</summary>
+                <ul class="list-disc pl-5 mt-2 text-sm max-h-40 overflow-y-auto">{% for api in value.api_endpoints[:20] %}<li class="truncate text-gray-300">{{ api }}</li>{% endfor %}</ul>
+              </details>
+            </div>
+            {% endif %}
+            
+            <!-- Social Media -->
+            {% if value.get('social_media') %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-share-nodes mr-2 text-pink-400"></i>Social Media</span>
+                <span class="badge ok">{{ value.social_media|length }}</span>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                {% for sm in value.social_media[:10] %}
+                <a href="{{ sm.url }}" target="_blank" class="text-xs bg-slate-700 px-2 py-1 rounded hover:bg-slate-600"><i class="fab fa-{{ sm.platform }} mr-1"></i>{{ sm.platform }}</a>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+            
+            <!-- Suspicious Comments -->
+            {% if value.get('comments') %}
+            <div class="bg-slate-800/40 rounded-lg p-3 md:col-span-2">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300"><i class="fas fa-comment-dots mr-2 text-red-400"></i>Suspicious Comments</span>
+                <span class="badge bad">{{ value.comments|length }}</span>
+              </div>
+              <div class="space-y-1">{% for c in value.comments[:5] %}<code class="block text-xs bg-slate-900/60 p-2 rounded text-red-300 overflow-x-auto">{{ c }}</code>{% endfor %}</div>
+            </div>
+            {% endif %}
+          </div>
+
 
         {% elif key == 'http_headers' %}
           <table><thead><tr><th>Header</th><th>Value</th></tr></thead>
@@ -906,6 +1701,247 @@ RESULTS_HTML = r"""
             </tbody>
           </table>
 
+        {% elif key == 'waf_detect' %}
+          {% if value.get('error') %}
+            <p class="text-red-400 text-sm">{{ value.error }}</p>
+          {% else %}
+            <table>
+              <tr><th>WAF/CDN Detected</th><td>
+                {% if value.get('detected') %}
+                  {% for waf in value.detected %}<span class="badge warn mr-1">{{ waf }}</span>{% endfor %}
+                {% else %}<span class="badge ok">None Detected</span>{% endif %}
+              </td></tr>
+              <tr><th>Confidence</th><td>{{ value.get('confidence', 'N/A') }}</td></tr>
+              <tr><th>Protected</th><td>{{ 'Yes' if value.get('likely_protected') else 'No' }}</td></tr>
+            </table>
+            {% if value.get('headers_evidence') %}
+              <div class="mt-2"><p class="text-xs text-gray-400 mb-1">Header Evidence:</p>
+                <ul class="text-xs text-gray-300 list-disc pl-5">
+                  {% for h in value.headers_evidence %}<li>{{ h }}</li>{% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+          {% endif %}
+
+        {% elif key == 'email_security' %}
+          {% if value.get('error') %}
+            <p class="text-red-400 text-sm">{{ value.error }}</p>
+          {% else %}
+            <div class="flex items-center gap-4 mb-3">
+              <div class="text-3xl font-bold {% if value.get('grade') == 'A' %}text-green-400{% elif value.get('grade') == 'B' %}text-blue-400{% elif value.get('grade') == 'C' %}text-yellow-400{% else %}text-red-400{% endif %}">
+                Grade: {{ value.get('grade', 'N/A') }}
+              </div>
+              <div class="text-sm text-gray-400">Score: {{ value.get('score', 0) }}/100</div>
+            </div>
+            <table>
+              <tr><th>SPF</th><td>
+                {% if value.get('spf', {}).get('found') %}<span class="badge ok">Found</span> <span class="text-xs ml-2">{{ value.spf.get('policy', '') }}</span>
+                {% else %}<span class="badge bad">Missing</span>{% endif %}
+              </td></tr>
+              <tr><th>DMARC</th><td>
+                {% if value.get('dmarc', {}).get('found') %}<span class="badge ok">Found</span> <span class="text-xs ml-2">Policy: {{ value.dmarc.get('policy', 'none') }}</span>
+                {% else %}<span class="badge bad">Missing</span>{% endif %}
+              </td></tr>
+              <tr><th>DKIM</th><td>
+                {% if value.get('dkim', {}).get('found') %}<span class="badge ok">Found</span> <span class="text-xs ml-2">{{ value.dkim.get('selectors', [])|length }} selector(s)</span>
+                {% else %}<span class="badge warn">Not Found</span>{% endif %}
+              </td></tr>
+            </table>
+            {% if value.get('recommendations') %}
+              <div class="mt-2 text-sm text-yellow-300"><i class="fas fa-exclamation-triangle mr-1"></i>Recommendations:
+                <ul class="list-disc pl-5">{% for r in value.recommendations %}<li>{{ r }}</li>{% endfor %}</ul>
+              </div>
+            {% endif %}
+          {% endif %}
+
+        {% elif key == 'port_scan' %}
+          {% if value.get('error') %}
+            <p class="text-red-400 text-sm">{{ value.error }}</p>
+          {% else %}
+            <p class="text-sm text-gray-400 mb-2">Target IP: {{ value.get('target_ip', 'N/A') }} | Open Ports: {{ value.get('open_count', 0) }}</p>
+            {% if value.get('risk_ports') %}
+              <div class="mb-2 text-yellow-300 text-sm"><i class="fas fa-exclamation-triangle mr-1"></i>Risk Ports Found: {{ value.risk_ports|length }}</div>
+            {% endif %}
+            <table>
+              <thead><tr><th>Port</th><th>State</th><th>Service</th></tr></thead>
+              <tbody>
+                {% for p in value.get('open_ports', []) %}
+                  <tr>
+                    <td>{{ p.port }}</td>
+                    <td><span class="badge {% if p.port in [21,22,23,3389,445,5900] %}warn{% else %}ok{% endif %}">{{ p.state }}</span></td>
+                    <td>{{ p.service }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+
+        {% elif key == 'asn_lookup' %}
+          {% if value.get('error') %}
+            <p class="text-red-400 text-sm">{{ value.error }}</p>
+          {% else %}
+            <table>
+              <tr><th>IP Address</th><td>{{ value.get('ip', 'N/A') }}</td></tr>
+              <tr><th>ASN</th><td>{{ value.get('asn', 'N/A') }}</td></tr>
+              <tr><th>Prefix (CIDR)</th><td>{{ value.get('prefix', 'N/A') }}</td></tr>
+              <tr><th>Country</th><td>{{ value.get('country', 'N/A') }}</td></tr>
+              <tr><th>Organization</th><td>{{ value.get('org_name', 'N/A') }}</td></tr>
+            </table>
+          {% endif %}
+
+        {% elif key == 'favicon_hash' %}
+          {% if value.get('found') %}
+            <table>
+              <tr><th>Favicon URL</th><td><a href="{{ value.get('url', '#') }}" target="_blank" class="text-blue-400 hover:underline">{{ value.get('url', 'N/A') }}</a></td></tr>
+              <tr><th>Size</th><td>{{ value.get('size_bytes', 0) }} bytes</td></tr>
+              <tr><th>MD5 Hash</th><td class="font-mono text-xs">{{ value.get('md5', 'N/A') }}</td></tr>
+              <tr><th>MMH3 Hash</th><td class="font-mono text-xs">{{ value.get('mmh3_hash', 'N/A') }}</td></tr>
+              {% if value.get('shodan_query') %}
+                <tr><th>Shodan Query</th><td><code class="text-xs bg-gray-700 px-2 py-1 rounded">{{ value.shodan_query }}</code></td></tr>
+              {% endif %}
+            </table>
+          {% else %}
+            <p class="text-gray-400 text-sm">No favicon found.</p>
+          {% endif %}
+
+        {% elif key == 'ssl_tls' %}
+          {% if value.get('error') %}
+            <p class="text-red-400 text-sm">{{ value.error }}</p>
+          {% else %}
+            <div class="flex items-center gap-4 mb-4">
+              <div class="text-4xl font-bold {% if value.get('grade') == 'A' %}text-green-400{% elif value.get('grade') == 'B' %}text-blue-400{% elif value.get('grade') == 'C' %}text-yellow-400{% else %}text-red-400{% endif %}">
+                {{ value.get('grade', 'F') }}
+              </div>
+              <div>
+                <div class="text-sm text-gray-400">SSL/TLS Score: {{ value.get('score', 0) }}/100</div>
+                <div class="text-sm text-gray-300">Protocol: {{ value.get('protocol', 'Unknown') }}</div>
+              </div>
+            </div>
+            <table>
+              <tr><th>Cipher Suite</th><td class="font-mono text-xs">{{ value.get('cipher_suite', 'N/A') }}</td></tr>
+              <tr><th>Certificate Subject</th><td>{{ value.get('certificate', {}).get('subject', {}).get('commonName', 'N/A') }}</td></tr>
+              <tr><th>Issuer</th><td>{{ value.get('certificate', {}).get('issuer', {}).get('organizationName', 'N/A') }}</td></tr>
+              <tr><th>Valid Until</th><td>{{ value.get('certificate', {}).get('not_after', 'N/A') }}</td></tr>
+              <tr><th>Days Until Expiry</th><td>{{ value.get('certificate', {}).get('days_until_expiry', 'N/A') }}</td></tr>
+            </table>
+            {% if value.get('issues') %}
+            <div class="mt-3 text-sm text-yellow-300"><i class="fas fa-exclamation-triangle mr-1"></i>Issues:
+              <ul class="list-disc pl-5">{% for i in value.issues %}<li>{{ i }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+          {% endif %}
+
+        {% elif key == 'subdomain_takeover' %}
+          {% if value.get('vulnerable') %}
+            <div class="mb-3 text-red-400"><i class="fas fa-skull-crossbones mr-2"></i>VULNERABLE: {{ value.vulnerable|length }} takeover(s) possible!</div>
+            <table>
+              <thead><tr><th>Subdomain</th><th>CNAME</th><th>Service</th><th>Fingerprint</th></tr></thead>
+              <tbody>{% for v in value.vulnerable %}
+                <tr>
+                  <td>{{ v.subdomain }}</td>
+                  <td class="font-mono text-xs">{{ v.cname }}</td>
+                  <td><span class="badge bad">{{ v.service }}</span></td>
+                  <td class="text-xs">{{ v.fingerprint }}</td>
+                </tr>
+              {% endfor %}</tbody>
+            </table>
+          {% else %}
+            <p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No subdomain takeover vulnerabilities detected.</p>
+            {% if value.get('cname_records') %}<p class="text-xs text-gray-400 mt-2">CNAME records checked: {{ value.cname_records|join(', ') }}</p>{% endif %}
+          {% endif %}
+
+        {% elif key == 'http_methods' %}
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2">Allowed Methods</div>
+              <div class="flex flex-wrap gap-2">
+                {% for m in value.get('allowed', []) %}<span class="badge ok">{{ m }}</span>{% endfor %}
+              </div>
+            </div>
+            {% if value.get('dangerous') %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-red-400 mb-2"><i class="fas fa-exclamation-triangle mr-1"></i>Dangerous Methods</div>
+              {% for d in value.dangerous %}
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="badge bad">{{ d.method }}</span>
+                  <span class="text-xs text-gray-400">Status: {{ d.status }}</span>
+                </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+
+        {% elif key == 'cors' %}
+          {% if value.get('vulnerable') %}
+            <div class="mb-3 text-red-400"><i class="fas fa-link-slash mr-2"></i>CORS Misconfiguration Detected!</div>
+            <ul class="list-disc pl-5 text-sm text-red-300">{% for i in value.get('issues', []) %}<li>{{ i }}</li>{% endfor %}</ul>
+            {% if value.get('headers') %}
+            <table class="mt-3">
+              {% for k, v in value.headers.items() %}<tr><th>{{ k }}</th><td class="font-mono text-xs">{{ v }}</td></tr>{% endfor %}
+            </table>
+            {% endif %}
+          {% else %}
+            <p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No CORS misconfigurations detected.</p>
+          {% endif %}
+
+        {% elif key == 'cookie_audit' %}
+          <div class="flex items-center gap-4 mb-4">
+            <div class="text-2xl font-bold {% if value.get('score', 0) >= 80 %}text-green-400{% elif value.get('score', 0) >= 50 %}text-yellow-400{% else %}text-red-400{% endif %}">
+              {{ value.get('score', 0) }}/100
+            </div>
+            <span class="text-sm text-gray-400">Cookie Security Score</span>
+          </div>
+          {% if value.get('cookies') %}
+          <table>
+            <thead><tr><th>Cookie</th><th>Secure</th><th>HttpOnly</th><th>SameSite</th><th>Issues</th></tr></thead>
+            <tbody>{% for c in value.cookies %}
+              <tr>
+                <td class="font-mono text-xs">{{ c.name }}</td>
+                <td><span class="badge {% if c.secure %}ok{% else %}bad{% endif %}">{{ 'Yes' if c.secure else 'No' }}</span></td>
+                <td><span class="badge {% if c.httponly %}ok{% else %}bad{% endif %}">{{ 'Yes' if c.httponly else 'No' }}</span></td>
+                <td>{{ c.samesite or 'None' }}</td>
+                <td class="text-xs text-red-300">{{ c.issues|join(', ') }}</td>
+              </tr>
+            {% endfor %}</tbody>
+          </table>
+          {% else %}<p class="text-gray-400 text-sm">No cookies found.</p>{% endif %}
+
+        {% elif key == 'js_secrets' %}
+          <p class="text-sm text-gray-400 mb-3">JS files scanned: {{ value.get('js_files_scanned', 0) }}</p>
+          {% if value.get('secrets_found') %}
+            <div class="text-red-400 mb-2"><i class="fas fa-key mr-1"></i>{{ value.secrets_found|length }} secrets found!</div>
+            <table>
+              <thead><tr><th>Type</th><th>Value</th><th>Severity</th></tr></thead>
+              <tbody>{% for s in value.secrets_found %}
+                <tr>
+                  <td>{{ s.type }}</td>
+                  <td class="font-mono text-xs max-w-xs truncate">{{ s.value }}</td>
+                  <td><span class="badge {% if s.severity == 'critical' %}bad{% else %}sev-high{% endif %}">{{ s.severity }}</span></td>
+                </tr>
+              {% endfor %}</tbody>
+            </table>
+          {% else %}
+            <p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No exposed secrets detected.</p>
+          {% endif %}
+
+        {% elif key == 'mitre_attack' %}
+          {% if value.get('findings') %}
+            <div class="text-sm text-gray-400 mb-3">{{ value.count }} findings mapped to MITRE ATT&CK</div>
+            <table>
+              <thead><tr><th>Technique</th><th>Tactic</th><th>Name</th><th>Evidence</th></tr></thead>
+              <tbody>{% for f in value.findings %}
+                <tr>
+                  <td><span class="badge warn">{{ f.technique }}</span></td>
+                  <td>{{ f.tactic }}</td>
+                  <td>{{ f.name }}</td>
+                  <td class="text-xs text-gray-400">{{ f.evidence }}</td>
+                </tr>
+              {% endfor %}</tbody>
+            </table>
+          {% else %}
+            <p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No findings mapped to MITRE ATT&CK techniques.</p>
+          {% endif %}
+
         {% else %}
           <p class="text-gray-400 text-sm">No structured data available.</p>
         {% endif %}
@@ -965,48 +2001,135 @@ RESULTS_HTML = r"""
 
 HISTORY_HTML = r"""
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Scan History</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEGIS — Scan History</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    .bg-animated { background: linear-gradient(-45deg, #0f0f23, #1a1a3e, #0d1b2a, #1b263b); background-size: 400% 400%; animation: gradientShift 15s ease infinite; }
+    @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(148, 163, 184, 0.1); border-radius: 1rem; transition: all 0.3s ease; }
+    .glass-card:hover { background: rgba(30, 41, 59, 0.85); border-color: rgba(96, 165, 250, 0.3); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); transform: translateY(-2px); }
+    .scan-row { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(148, 163, 184, 0.1); border-radius: 0.75rem; transition: all 0.2s ease; }
+    .scan-row:hover { border-color: rgba(96, 165, 250, 0.4); background: rgba(30, 41, 59, 0.7); }
+    .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.25rem; border-radius: 0.75rem; font-weight: 500; font-size: 0.85rem; transition: all 0.2s ease; }
+    .btn-primary { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+    .btn-primary:hover { background: linear-gradient(135deg, #60a5fa, #3b82f6); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
+    .stat-card { background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(30, 41, 59, 0.4) 100%); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 1rem; padding: 1.25rem; position: relative; overflow: hidden; }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, var(--accent-color, #3b82f6), transparent); }
+  </style>
 </head>
-<body class="bg-gray-900 text-gray-200 font-sans">
-  <div class="container mx-auto p-6">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-3xl font-bold text-blue-400">Scan History</h1>
-      <a href="/" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-white">New Scan</a>
+<body class="bg-animated text-gray-200 min-h-screen">
+  <div class="container mx-auto p-4 md:p-8">
+    <!-- Header -->
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+          <i class="fas fa-clock-rotate-left text-white text-xl"></i>
+        </div>
+        <div>
+          <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Scan History</h1>
+          <p class="text-gray-400 text-sm">Browse and compare previous threat hunts</p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <a href="/scheduled" class="btn" style="background: rgba(51, 65, 85, 0.7); border: 1px solid rgba(148, 163, 184, 0.2);"><i class="fas fa-calendar"></i> Scheduled</a>
+        <a href="/" class="btn btn-primary"><i class="fas fa-plus"></i> New Scan</a>
+      </div>
     </div>
-    <input id="histFilter" placeholder="Filter…" class="w-full md:w-1/2 mb-4 rounded-md bg-gray-800 border border-gray-700 px-3 py-2 text-sm">
-    <table class="w-full border border-gray-700">
-      <thead class="bg-gray-800">
-        <tr><th class="p-2 text-left">ID</th><th class="p-2 text-left">URL</th><th class="p-2 text-left">Date</th><th class="p-2">Open</th></tr>
-      </thead>
-      <tbody id="histBody">
-        {% for it in items %}
-          <tr class="border-t border-gray-700">
-            <td class="p-2">{{ it['id'] }}</td>
-            <td class="p-2">{{ it['url'] }}</td>
-            <td class="p-2">{{ it['scan_date'] }}</td>
-            <td class="p-2 text-center">
-              <a href="/view/{{ it['id'] }}" class="text-blue-400 hover:underline">View</a>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="stat-card" style="--accent-color: #3b82f6;">
+        <div class="text-xs text-gray-400 mb-1">Total Scans</div>
+        <div class="text-2xl font-bold text-blue-400">{{ items|length }}</div>
+      </div>
+      <div class="stat-card" style="--accent-color: #10b981;">
+        <div class="text-xs text-gray-400 mb-1">This Week</div>
+        <div class="text-2xl font-bold text-green-400">{{ items[:7]|length }}</div>
+      </div>
+      <div class="stat-card" style="--accent-color: #f59e0b;">
+        <div class="text-xs text-gray-400 mb-1">Unique Targets</div>
+        <div class="text-2xl font-bold text-yellow-400">{{ items|map(attribute='url')|list|unique|list|length if items else 0 }}</div>
+      </div>
+      <div class="stat-card" style="--accent-color: #8b5cf6;">
+        <div class="text-xs text-gray-400 mb-1">Latest Scan</div>
+        <div class="text-sm font-bold text-purple-400 truncate">{{ items[0]['scan_date'][:10] if items else 'None' }}</div>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="glass-card p-4 mb-6">
+      <div class="flex flex-wrap gap-4 items-center">
+        <div class="flex-1 min-w-[250px]">
+          <div class="relative">
+            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+            <input id="histFilter" type="text" placeholder="Search by URL, date, or ID..."
+                   class="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-sm focus:outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all">
+          </div>
+        </div>
+        <div class="text-sm text-gray-400">
+          <span id="resultCount">{{ items|length }}</span> scans found
+        </div>
+      </div>
+    </div>
+
+    <!-- Scan List -->
+    <div id="scanList" class="space-y-3">
+      {% for it in items %}
+      <div class="scan-row p-4 flex flex-wrap items-center justify-between gap-4" data-search="{{ it['url'] }} {{ it['scan_date'] }} {{ it['id'] }}">
+        <div class="flex items-center gap-4">
+          <div class="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400">
+            <i class="fas fa-globe"></i>
+          </div>
+          <div>
+            <div class="font-medium text-white truncate max-w-[400px]">{{ it['url'] }}</div>
+            <div class="text-xs text-gray-400 flex items-center gap-3 mt-1">
+              <span><i class="fas fa-hashtag mr-1"></i>{{ it['id'] }}</span>
+              <span><i class="fas fa-calendar mr-1"></i>{{ it['scan_date'] }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <a href="/view/{{ it['id'] }}" class="btn btn-primary text-sm py-2"><i class="fas fa-eye"></i> View</a>
+          <a href="/graph/{{ it['id'] }}" class="btn text-sm py-2" style="background: rgba(51, 65, 85, 0.7); border: 1px solid rgba(148, 163, 184, 0.2);"><i class="fas fa-diagram-project"></i></a>
+        </div>
+      </div>
+      {% endfor %}
+      {% if not items %}
+      <div class="glass-card p-12 text-center">
+        <i class="fas fa-inbox text-4xl text-gray-600 mb-4"></i>
+        <p class="text-gray-400">No scans yet. Start your first threat hunt!</p>
+        <a href="/" class="btn btn-primary mt-4"><i class="fas fa-rocket"></i> Start Scanning</a>
+      </div>
+      {% endif %}
+    </div>
   </div>
+
   <script>
     const input = document.getElementById('histFilter');
-    const rows = Array.from(document.querySelectorAll('#histBody tr'));
+    const rows = Array.from(document.querySelectorAll('.scan-row'));
+    const countEl = document.getElementById('resultCount');
     input.addEventListener('input', () => {
       const q = input.value.toLowerCase();
-      rows.forEach(r => { r.style.display = r.innerText.toLowerCase().includes(q) ? '' : 'none'; });
+      let visible = 0;
+      rows.forEach(r => {
+        const match = r.dataset.search.toLowerCase().includes(q);
+        r.style.display = match ? '' : 'none';
+        if (match) visible++;
+      });
+      countEl.textContent = visible;
     });
   </script>
 </body>
 </html>
 """
+
 
 GRAPH_HTML = r"""
 <!doctype html>
@@ -1396,35 +2519,161 @@ def subdomain_scan(domain: str, mode: str = "defensive", extra_words=None):
     return {"rows": rows, "found": sorted(found_set)}
 
 # ---------------- Other Modules ----------------
-def crawl_website(start_url, max_depth=1):
+def crawl_website(start_url, max_depth=2, max_pages=50):
+    """Enhanced crawler with concurrent execution and extended data extraction"""
     visited = set()
-    q = [(url_normalize(start_url), 0)]
-    crawled = {'urls': [], 'emails': [], 'external_links': []}
+    to_visit = [(url_normalize(start_url), 0)]
     base_netloc = urlparse(start_url).netloc
-    email_rx = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")  # fixed 0-9
-    while q:
-        url, depth = q.pop(0)
-        if url in visited or depth > max_depth:
-            continue
+    
+    crawled = {
+        'urls': [],
+        'emails': [],
+        'external_links': [],
+        'forms': [],
+        'js_files': [],
+        'social_media': [],
+        'phone_numbers': [],
+        'api_endpoints': [],
+        'comments': [],
+        'images': [],
+        'stats': {'pages_scanned': 0, 'errors': 0}
+    }
+    
+    # Regex patterns
+    email_rx = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+    phone_rx = re.compile(r"(?:\+\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}")
+    api_rx = re.compile(r"(?:/api/[^\s\"'<>]+|\.json(?:\?[^\s\"'<>]*)?)", re.I)
+    comment_rx = re.compile(r"<!--(.*?)-->", re.S)
+    social_patterns = {
+        'twitter': re.compile(r"(?:twitter\.com|x\.com)/[A-Za-z0-9_]+", re.I),
+        'facebook': re.compile(r"facebook\.com/[A-Za-z0-9_.]+", re.I),
+        'linkedin': re.compile(r"linkedin\.com/(?:in|company)/[A-Za-z0-9_-]+", re.I),
+        'github': re.compile(r"github\.com/[A-Za-z0-9_-]+", re.I),
+        'instagram': re.compile(r"instagram\.com/[A-Za-z0-9_.]+", re.I),
+    }
+    
+    def process_page(url, depth):
+        """Process a single page and extract data"""
+        result = {'url': url, 'depth': depth, 'links': [], 'data': {}}
         try:
             r = http_get(url)
             if hasattr(r, 'error'):
-                continue
-            visited.add(url)
-            crawled['urls'].append(url)
-            soup = BeautifulSoup(r.text, 'html.parser')
-            for m in email_rx.findall(r.text):
-                if m not in crawled['emails']:
+                return None
+            
+            html_text = r.text
+            soup = BeautifulSoup(html_text, 'html.parser')
+            
+            # Extract emails
+            for m in email_rx.findall(html_text):
+                if m not in crawled['emails'] and not m.endswith(('.png', '.jpg', '.gif')):
                     crawled['emails'].append(m)
+            
+            # Extract phone numbers
+            for m in phone_rx.findall(html_text):
+                clean = re.sub(r'[^\d+]', '', m)
+                if len(clean) >= 10 and clean not in crawled['phone_numbers']:
+                    crawled['phone_numbers'].append(m.strip())
+            
+            # Extract API endpoints
+            for m in api_rx.findall(html_text):
+                endpoint = urljoin(url, m)
+                if endpoint not in crawled['api_endpoints']:
+                    crawled['api_endpoints'].append(endpoint)
+            
+            # Extract social media links
+            for platform, pattern in social_patterns.items():
+                for match in pattern.findall(html_text):
+                    full_url = f"https://{match}"
+                    entry = {'platform': platform, 'url': full_url}
+                    if entry not in crawled['social_media']:
+                        crawled['social_media'].append(entry)
+            
+            # Extract HTML comments
+            for comment in comment_rx.findall(html_text):
+                comment = comment.strip()
+                if len(comment) > 10 and len(comment) < 500:
+                    if any(kw in comment.lower() for kw in ['todo', 'fixme', 'bug', 'hack', 'password', 'secret', 'key', 'token', 'debug']):
+                        if comment not in crawled['comments']:
+                            crawled['comments'].append(comment[:200])
+            
+            # Extract forms
+            for form in soup.find_all('form'):
+                form_data = {
+                    'action': urljoin(url, form.get('action', '')),
+                    'method': form.get('method', 'GET').upper(),
+                    'inputs': []
+                }
+                for inp in form.find_all(['input', 'textarea', 'select']):
+                    inp_name = inp.get('name', '')
+                    inp_type = inp.get('type', 'text')
+                    if inp_name:
+                        form_data['inputs'].append({'name': inp_name, 'type': inp_type})
+                if form_data['action'] and form_data not in crawled['forms']:
+                    crawled['forms'].append(form_data)
+            
+            # Extract JavaScript files
+            for script in soup.find_all('script', src=True):
+                js_url = urljoin(url, script['src'])
+                if js_url not in crawled['js_files'] and base_netloc in js_url:
+                    crawled['js_files'].append(js_url)
+            
+            # Extract links
             for a in soup.find_all('a', href=True):
-                absolute = urljoin(url, a['href'])
+                href = a['href'].strip()
+                if href.startswith(('#', 'javascript:', 'mailto:', 'tel:')):
+                    continue
+                absolute = urljoin(url, href)
                 netloc = urlparse(absolute).netloc
-                if netloc == base_netloc and absolute not in visited:
-                    q.append((absolute, depth + 1))
-                elif netloc and netloc != base_netloc and absolute not in crawled['external_links']:
+                
+                if netloc == base_netloc:
+                    if absolute not in visited and absolute not in [v[0] for v in to_visit]:
+                        result['links'].append((absolute, depth + 1))
+                elif netloc and absolute not in crawled['external_links']:
                     crawled['external_links'].append(absolute)
-        except Exception:
-            continue
+            
+            return result
+            
+        except Exception as e:
+            crawled['stats']['errors'] += 1
+            return None
+    
+    # Concurrent crawling
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        while to_visit and len(crawled['urls']) < max_pages:
+            # Get batch of URLs to process
+            batch = []
+            while to_visit and len(batch) < 8:
+                url, depth = to_visit.pop(0)
+                if url not in visited and depth <= max_depth:
+                    visited.add(url)
+                    batch.append((url, depth))
+            
+            if not batch:
+                break
+            
+            # Process batch concurrently
+            futures = {executor.submit(process_page, url, depth): (url, depth) for url, depth in batch}
+            for future in as_completed(futures, timeout=30):
+                try:
+                    result = future.result()
+                    if result:
+                        crawled['urls'].append(result['url'])
+                        crawled['stats']['pages_scanned'] += 1
+                        # Add new links to queue
+                        for link_url, link_depth in result.get('links', []):
+                            if link_url not in visited:
+                                to_visit.append((link_url, link_depth))
+                except Exception:
+                    crawled['stats']['errors'] += 1
+    
+    # Limit results to prevent massive output
+    crawled['external_links'] = crawled['external_links'][:100]
+    crawled['js_files'] = crawled['js_files'][:50]
+    crawled['forms'] = crawled['forms'][:30]
+    crawled['comments'] = crawled['comments'][:20]
+    crawled['social_media'] = crawled['social_media'][:20]
+    crawled['api_endpoints'] = crawled['api_endpoints'][:50]
+    
     return crawled
 
 def get_whois_info(domain):
@@ -1596,6 +2845,563 @@ def abuseipdb_lookup(ip: str):
         return r.json()
     except Exception as e:
         return {"error": str(e)}
+
+# ---------------- NEW RECONNAISSANCE MODULES ----------------
+
+# WAF Detection signatures
+WAF_SIGNATURES = {
+    "Cloudflare": ["cf-ray", "cf-cache-status", "__cfduid", "cloudflare"],
+    "AWS WAF": ["x-amzn-requestid", "x-amz-cf-id", "awselb"],
+    "Akamai": ["akamai-origin-hop", "x-akamai-transformed"],
+    "Imperva/Incapsula": ["x-iinfo", "incap_ses", "visid_incap"],
+    "Sucuri": ["x-sucuri-id", "x-sucuri-cache"],
+    "ModSecurity": ["mod_security", "modsecurity"],
+    "F5 BIG-IP": ["x-wa-info", "bigipserver"],
+    "Barracuda": ["barra_counter_session"],
+    "Fortinet FortiWeb": ["fortiwafsid"],
+    "DDoS-Guard": ["ddos-guard"],
+}
+
+def detect_waf(url: str):
+    """Detect WAF/CDN using response headers and behavior analysis"""
+    detected = []
+    headers_found = []
+    try:
+        resp = SESSION.get(url, timeout=DEFAULT_TIMEOUT, allow_redirects=True)
+        response_headers = {k.lower(): v for k, v in resp.headers.items()}
+        cookies = resp.cookies.get_dict()
+        
+        for waf_name, signatures in WAF_SIGNATURES.items():
+            for sig in signatures:
+                sig_lower = sig.lower()
+                for header_name, header_value in response_headers.items():
+                    if sig_lower in header_name or sig_lower in header_value.lower():
+                        if waf_name not in detected:
+                            detected.append(waf_name)
+                            headers_found.append(f"{header_name}: {header_value[:50]}")
+                for cookie_name in cookies:
+                    if sig_lower in cookie_name.lower():
+                        if waf_name not in detected:
+                            detected.append(waf_name)
+        
+        server = response_headers.get("server", "").lower()
+        if "cloudflare" in server and "Cloudflare" not in detected:
+            detected.append("Cloudflare")
+        elif "akamai" in server and "Akamai" not in detected:
+            detected.append("Akamai")
+        
+        return {
+            "detected": detected,
+            "headers_evidence": headers_found[:10],
+            "likely_protected": len(detected) > 0,
+            "confidence": "high" if detected else "low",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+def email_security_check(domain: str):
+    """Check SPF, DKIM, DMARC email security records"""
+    results = {"spf": None, "dkim": None, "dmarc": None, "score": 0, "recommendations": []}
+    
+    try:
+        # SPF Check
+        try:
+            spf_answers = dns.resolver.resolve(domain, 'TXT')
+            for rdata in spf_answers:
+                txt = rdata.to_text().strip('"')
+                if txt.startswith('v=spf1'):
+                    results["spf"] = {"record": txt, "found": True}
+                    if "-all" in txt:
+                        results["spf"]["policy"] = "strict"
+                        results["score"] += 30
+                    elif "~all" in txt:
+                        results["spf"]["policy"] = "softfail"
+                        results["score"] += 20
+                    break
+            if not results["spf"]:
+                results["spf"] = {"found": False}
+                results["recommendations"].append("Implement SPF record")
+        except Exception:
+            results["spf"] = {"found": False}
+        
+        # DMARC Check
+        try:
+            dmarc_answers = dns.resolver.resolve(f"_dmarc.{domain}", 'TXT')
+            for rdata in dmarc_answers:
+                txt = rdata.to_text().strip('"')
+                if 'v=DMARC1' in txt:
+                    policy = "none"
+                    if "p=reject" in txt:
+                        policy = "reject"
+                        results["score"] += 40
+                    elif "p=quarantine" in txt:
+                        policy = "quarantine"
+                        results["score"] += 30
+                    results["dmarc"] = {"record": txt, "found": True, "policy": policy}
+                    break
+            if not results["dmarc"]:
+                results["dmarc"] = {"found": False}
+                results["recommendations"].append("Implement DMARC record")
+        except Exception:
+            results["dmarc"] = {"found": False}
+        
+        # DKIM Check
+        dkim_selectors = ["default", "google", "selector1", "selector2", "k1"]
+        dkim_found = []
+        for selector in dkim_selectors:
+            try:
+                dkim_answers = dns.resolver.resolve(f"{selector}._domainkey.{domain}", 'TXT')
+                for rdata in dkim_answers:
+                    txt = rdata.to_text().strip('"')
+                    if 'v=DKIM1' in txt or 'k=' in txt:
+                        dkim_found.append({"selector": selector, "record": txt[:80]})
+                        results["score"] += 15
+            except Exception:
+                pass
+        results["dkim"] = {"found": bool(dkim_found), "selectors": dkim_found}
+        
+        # Grade
+        if results["score"] >= 80:
+            results["grade"] = "A"
+        elif results["score"] >= 60:
+            results["grade"] = "B"
+        elif results["score"] >= 40:
+            results["grade"] = "C"
+        else:
+            results["grade"] = "F"
+        
+        return results
+    except Exception as e:
+        return {"error": str(e)}
+
+def port_scan(domain: str):
+    """Quick port scan with service identification"""
+    TOP_PORTS = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 993, 995, 3306, 3389, 5432, 5900, 8080, 8443]
+    
+    try:
+        target_ip = socket.gethostbyname(domain)
+    except socket.gaierror as e:
+        return {"error": f"Could not resolve: {e}"}
+    
+    open_ports = []
+    service_map = {21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP",
+                   110: "POP3", 143: "IMAP", 443: "HTTPS", 445: "SMB", 993: "IMAPS",
+                   995: "POP3S", 3306: "MySQL", 3389: "RDP", 5432: "PostgreSQL",
+                   5900: "VNC", 8080: "HTTP-Proxy", 8443: "HTTPS-Alt"}
+    
+    def scan_port(port):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.5)
+            if sock.connect_ex((target_ip, port)) == 0:
+                return {"port": port, "state": "open", "service": service_map.get(port, "Unknown")}
+            sock.close()
+        except Exception:
+            pass
+        return None
+    
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(scan_port, port) for port in TOP_PORTS]
+        for future in as_completed(futures, timeout=30):
+            result = future.result()
+            if result:
+                open_ports.append(result)
+    
+    open_ports.sort(key=lambda x: x["port"])
+    return {
+        "target_ip": target_ip,
+        "open_count": len(open_ports),
+        "open_ports": open_ports,
+        "risk_ports": [p for p in open_ports if p["port"] in [21, 22, 23, 3389, 445, 5900]],
+    }
+
+def asn_lookup(ip: str):
+    """Get ASN and organization info"""
+    try:
+        reversed_ip = ".".join(reversed(ip.split(".")))
+        asn_query = f"{reversed_ip}.origin.asn.cymru.com"
+        result = {"ip": ip, "asn": None, "prefix": None, "country": None, "org_name": None}
+        
+        try:
+            answers = dns.resolver.resolve(asn_query, 'TXT')
+            for rdata in answers:
+                txt = rdata.to_text().strip('"')
+                parts = [p.strip() for p in txt.split('|')]
+                if len(parts) >= 3:
+                    result["asn"] = parts[0]
+                    result["prefix"] = parts[1]
+                    result["country"] = parts[2]
+        except Exception:
+            pass
+        
+        if result["asn"]:
+            try:
+                answers = dns.resolver.resolve(f"AS{result['asn']}.asn.cymru.com", 'TXT')
+                for rdata in answers:
+                    txt = rdata.to_text().strip('"')
+                    parts = [p.strip() for p in txt.split('|')]
+                    if len(parts) >= 5:
+                        result["org_name"] = parts[4]
+            except Exception:
+                pass
+        
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+def favicon_hash(url: str):
+    """Calculate favicon hash for Shodan matching"""
+    import hashlib
+    
+    for path in ["/favicon.ico", "/favicon.png"]:
+        try:
+            resp = SESSION.get(urljoin(url, path), timeout=10)
+            if resp.status_code == 200 and len(resp.content) > 0:
+                b64_content = base64.b64encode(resp.content).decode()
+                md5_hash = hashlib.md5(resp.content).hexdigest()
+                try:
+                    import mmh3
+                    mmh3_hash = mmh3.hash(b64_content)
+                except ImportError:
+                    mmh3_hash = "mmh3 not installed"
+                return {
+                    "found": True, "url": urljoin(url, path),
+                    "size_bytes": len(resp.content), "md5": md5_hash,
+                    "mmh3_hash": mmh3_hash,
+                    "shodan_query": f"http.favicon.hash:{mmh3_hash}" if isinstance(mmh3_hash, int) else None,
+                }
+        except Exception:
+            continue
+    return {"found": False}
+
+# ---------------- ADVANCED RECON MODULES ----------------
+
+def ssl_tls_analysis(domain: str):
+    """Deep SSL/TLS analysis with cipher grading"""
+    WEAK_CIPHERS = ['RC4', 'DES', 'NULL', 'EXPORT', 'MD5', 'anon']
+    GOOD_PROTOCOLS = ['TLSv1.2', 'TLSv1.3']
+    
+    result = {
+        "grade": "F", "score": 0, "issues": [], "certificate": {},
+        "protocol": None, "cipher_suite": None, "key_exchange": None
+    }
+    
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                result["protocol"] = ssock.version()
+                result["cipher_suite"] = ssock.cipher()[0]
+                
+                cert = ssock.getpeercert()
+                result["certificate"] = {
+                    "subject": dict(x[0] for x in cert.get('subject', [])),
+                    "issuer": dict(x[0] for x in cert.get('issuer', [])),
+                    "not_before": cert.get('notBefore'),
+                    "not_after": cert.get('notAfter'),
+                    "san": [x[1] for x in cert.get('subjectAltName', [])],
+                }
+                
+                # Score calculation
+                score = 0
+                if result["protocol"] in GOOD_PROTOCOLS:
+                    score += 40
+                elif result["protocol"] == "TLSv1.1":
+                    score += 20
+                    result["issues"].append("TLS 1.1 deprecated - upgrade to 1.2+")
+                elif result["protocol"] == "TLSv1":
+                    result["issues"].append("TLS 1.0 deprecated - security risk")
+                
+                # Cipher check
+                cipher = result["cipher_suite"]
+                if any(weak in cipher for weak in WEAK_CIPHERS):
+                    result["issues"].append(f"Weak cipher: {cipher}")
+                else:
+                    score += 30
+                
+                # Certificate validity
+                from datetime import datetime
+                try:
+                    not_after = datetime.strptime(cert.get('notAfter', ''), '%b %d %H:%M:%S %Y %Z')
+                    days_left = (not_after - datetime.utcnow()).days
+                    result["certificate"]["days_until_expiry"] = days_left
+                    if days_left < 0:
+                        result["issues"].append("Certificate EXPIRED")
+                    elif days_left < 30:
+                        result["issues"].append(f"Certificate expires in {days_left} days")
+                        score += 10
+                    else:
+                        score += 30
+                except:
+                    pass
+                
+                result["score"] = score
+                if score >= 90: result["grade"] = "A"
+                elif score >= 70: result["grade"] = "B"
+                elif score >= 50: result["grade"] = "C"
+                elif score >= 30: result["grade"] = "D"
+                
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+def subdomain_takeover_check(domain: str):
+    """Check for subdomain takeover vulnerabilities"""
+    TAKEOVER_FINGERPRINTS = {
+        "github.io": ["There isn't a GitHub Pages site here"],
+        "herokuapp.com": ["No such app", "no-such-app"],
+        "s3.amazonaws.com": ["NoSuchBucket", "The specified bucket does not exist"],
+        "cloudfront.net": ["Bad Request", "ERROR: The request could not be satisfied"],
+        "azure": ["404 Web Site not found"],
+        "zendesk.com": ["Help Center Closed"],
+        "shopify.com": ["Sorry, this shop is currently unavailable"],
+        "tumblr.com": ["There's nothing here"],
+        "wordpress.com": ["Do you want to register"],
+        "ghost.io": ["The thing you were looking for is no longer here"],
+    }
+    
+    result = {"vulnerable": [], "checked": [], "cname_records": []}
+    
+    try:
+        # Get CNAME records
+        try:
+            answers = dns.resolver.resolve(domain, 'CNAME')
+            for rdata in answers:
+                result["cname_records"].append(rdata.target.to_text())
+        except:
+            pass
+        
+        for cname in result["cname_records"]:
+            result["checked"].append(cname)
+            for service, fingerprints in TAKEOVER_FINGERPRINTS.items():
+                if service in cname.lower():
+                    try:
+                        resp = SESSION.get(f"http://{domain}", timeout=10, allow_redirects=True)
+                        for fp in fingerprints:
+                            if fp.lower() in resp.text.lower():
+                                result["vulnerable"].append({
+                                    "subdomain": domain,
+                                    "cname": cname,
+                                    "service": service,
+                                    "fingerprint": fp
+                                })
+                    except:
+                        pass
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+def http_method_enum(url: str):
+    """Enumerate allowed HTTP methods"""
+    METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'TRACE']
+    DANGEROUS = ['PUT', 'DELETE', 'TRACE']
+    
+    result = {"allowed": [], "dangerous": [], "options_header": None}
+    
+    try:
+        # Try OPTIONS first
+        try:
+            resp = SESSION.options(url, timeout=10)
+            allow = resp.headers.get('Allow', '')
+            result["options_header"] = allow
+            if allow:
+                result["allowed"] = [m.strip() for m in allow.split(',')]
+        except:
+            pass
+        
+        # Test each method
+        for method in METHODS:
+            try:
+                resp = SESSION.request(method, url, timeout=5)
+                if resp.status_code not in [405, 501]:
+                    if method not in result["allowed"]:
+                        result["allowed"].append(method)
+                    if method in DANGEROUS:
+                        result["dangerous"].append({
+                            "method": method,
+                            "status": resp.status_code,
+                            "risk": "high" if method in ['PUT', 'DELETE'] else "medium"
+                        })
+            except:
+                pass
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+def cors_check(url: str):
+    """Check for CORS misconfigurations"""
+    TEST_ORIGINS = ["https://evil.com", "null", "https://attacker.com"]
+    result = {"vulnerable": False, "issues": [], "headers": {}}
+    
+    try:
+        for origin in TEST_ORIGINS:
+            resp = SESSION.get(url, headers={"Origin": origin}, timeout=10)
+            acao = resp.headers.get("Access-Control-Allow-Origin", "")
+            acac = resp.headers.get("Access-Control-Allow-Credentials", "")
+            
+            if acao:
+                result["headers"]["Access-Control-Allow-Origin"] = acao
+                result["headers"]["Access-Control-Allow-Credentials"] = acac
+                
+                if acao == "*":
+                    result["issues"].append("Wildcard ACAO - allows any origin")
+                    result["vulnerable"] = True
+                elif acao == origin:
+                    result["issues"].append(f"Reflects arbitrary origin: {origin}")
+                    result["vulnerable"] = True
+                    if acac.lower() == "true":
+                        result["issues"].append("CRITICAL: Credentials allowed with reflected origin")
+                elif acao == "null":
+                    result["issues"].append("Allows 'null' origin - sandbox bypass possible")
+                    result["vulnerable"] = True
+                break
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+def cookie_security_audit(url: str):
+    """Audit cookie security attributes"""
+    result = {"cookies": [], "issues": [], "score": 100}
+    
+    try:
+        resp = SESSION.get(url, timeout=10)
+        for cookie in resp.cookies:
+            cookie_info = {
+                "name": cookie.name,
+                "secure": cookie.secure,
+                "httponly": cookie.has_nonstandard_attr('HttpOnly') or 'httponly' in str(cookie).lower(),
+                "samesite": None,
+                "issues": []
+            }
+            
+            # Check SameSite
+            cookie_str = str(cookie).lower()
+            if 'samesite=strict' in cookie_str:
+                cookie_info["samesite"] = "Strict"
+            elif 'samesite=lax' in cookie_str:
+                cookie_info["samesite"] = "Lax"
+            elif 'samesite=none' in cookie_str:
+                cookie_info["samesite"] = "None"
+            
+            # Score issues
+            if not cookie_info["secure"]:
+                cookie_info["issues"].append("Missing Secure flag")
+                result["score"] -= 15
+            if not cookie_info["httponly"]:
+                cookie_info["issues"].append("Missing HttpOnly flag")
+                result["score"] -= 10
+            if cookie_info["samesite"] is None:
+                cookie_info["issues"].append("Missing SameSite attribute")
+                result["score"] -= 5
+            
+            result["cookies"].append(cookie_info)
+            result["issues"].extend([f"{cookie.name}: {i}" for i in cookie_info["issues"]])
+        
+        result["score"] = max(0, result["score"])
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+def js_secret_scan(url: str):
+    """Extract secrets from JavaScript files"""
+    SECRET_PATTERNS = {
+        "AWS Key": re.compile(r'AKIA[0-9A-Z]{16}'),
+        "Google API": re.compile(r'AIza[0-9A-Za-z\-_]{35}'),
+        "Slack Token": re.compile(r'xox[baprs]-[0-9A-Za-z\-]{10,}'),
+        "GitHub Token": re.compile(r'gh[pousr]_[A-Za-z0-9_]{36,}'),
+        "JWT": re.compile(r'eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+'),
+        "Private Key": re.compile(r'-----BEGIN (?:RSA |EC )?PRIVATE KEY-----'),
+        "API Key": re.compile(r'(?:api[_-]?key|apikey)["\s:=]+["\']?([A-Za-z0-9\-_]{16,})["\']?', re.I),
+        "Password": re.compile(r'(?:password|passwd|pwd)["\s:=]+["\']([^"\']{4,})["\']', re.I),
+        "Bearer Token": re.compile(r'Bearer\s+[A-Za-z0-9\-_\.]+'),
+    }
+    
+    result = {"secrets_found": [], "js_files_scanned": 0}
+    
+    try:
+        resp = SESSION.get(url, timeout=10)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        js_content = [resp.text]  # Also scan HTML
+        
+        for script in soup.find_all('script', src=True):
+            try:
+                js_url = urljoin(url, script['src'])
+                js_resp = SESSION.get(js_url, timeout=5)
+                js_content.append(js_resp.text)
+                result["js_files_scanned"] += 1
+            except:
+                pass
+        
+        for content in js_content:
+            for secret_type, pattern in SECRET_PATTERNS.items():
+                matches = pattern.findall(content)
+                for match in matches[:3]:  # Limit per type
+                    match_str = match if isinstance(match, str) else match[0]
+                    if len(match_str) > 8:  # Filter short matches
+                        result["secrets_found"].append({
+                            "type": secret_type,
+                            "value": match_str[:50] + "..." if len(match_str) > 50 else match_str,
+                            "severity": "critical" if secret_type in ["AWS Key", "Private Key", "GitHub Token"] else "high"
+                        })
+        
+        # Deduplicate
+        seen = set()
+        result["secrets_found"] = [s for s in result["secrets_found"] if not (s["value"] in seen or seen.add(s["value"]))]
+        
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+# MITRE ATT&CK Mapping for findings
+MITRE_MAPPING = {
+    "missing_security_headers": {"tactic": "Initial Access", "technique": "T1190", "name": "Exploit Public-Facing Application"},
+    "weak_tls": {"tactic": "Collection", "technique": "T1557", "name": "Adversary-in-the-Middle"},
+    "exposed_credentials": {"tactic": "Credential Access", "technique": "T1552", "name": "Unsecured Credentials"},
+    "subdomain_takeover": {"tactic": "Resource Development", "technique": "T1584.001", "name": "Compromise Infrastructure: Domains"},
+    "cors_misconfiguration": {"tactic": "Initial Access", "technique": "T1189", "name": "Drive-by Compromise"},
+    "dangerous_http_methods": {"tactic": "Persistence", "technique": "T1505", "name": "Server Software Component"},
+    "exposed_admin": {"tactic": "Initial Access", "technique": "T1190", "name": "Exploit Public-Facing Application"},
+    "javascript_secrets": {"tactic": "Credential Access", "technique": "T1552.001", "name": "Credentials In Files"},
+}
+
+def apply_mitre_mapping(results: dict):
+    """Apply MITRE ATT&CK mapping to scan results"""
+    mitre_findings = []
+    
+    # Check security headers
+    if results.get("sec_headers", {}).get("rows"):
+        missing = [r for r in results["sec_headers"]["rows"] if r.get("status") == "WARN"]
+        if missing:
+            mitre_findings.append({**MITRE_MAPPING["missing_security_headers"], "evidence": f"{len(missing)} missing security headers"})
+    
+    # Check TLS
+    if results.get("ssl_tls", {}).get("grade") in ["D", "F"]:
+        mitre_findings.append({**MITRE_MAPPING["weak_tls"], "evidence": f"TLS Grade: {results['ssl_tls']['grade']}"})
+    
+    # Check JS secrets
+    if results.get("js_secrets", {}).get("secrets_found"):
+        mitre_findings.append({**MITRE_MAPPING["javascript_secrets"], "evidence": f"{len(results['js_secrets']['secrets_found'])} secrets found"})
+    
+    # Check subdomain takeover
+    if results.get("subdomain_takeover", {}).get("vulnerable"):
+        mitre_findings.append({**MITRE_MAPPING["subdomain_takeover"], "evidence": "Subdomain takeover possible"})
+    
+    # Check CORS
+    if results.get("cors", {}).get("vulnerable"):
+        mitre_findings.append({**MITRE_MAPPING["cors_misconfiguration"], "evidence": results["cors"].get("issues", ["CORS issue"])[0]})
+    
+    # Check HTTP methods
+    if results.get("http_methods", {}).get("dangerous"):
+        mitre_findings.append({**MITRE_MAPPING["dangerous_http_methods"], "evidence": f"Dangerous methods: {[d['method'] for d in results['http_methods']['dangerous']]}"})
+    
+    return {"findings": mitre_findings, "count": len(mitre_findings)}
 
 SECURITY_TXT_PATHS = [
     "/.well-known/security.txt",
@@ -2547,6 +4353,22 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
     run_mod("shodan",     "shodan" in selected_services and domain, shodan_lookup, domain)
     run_mod("greynoise",  "greynoise" in selected_services and ip, greynoise_lookup, ip)
     run_mod("abuseipdb",  "abuseipdb" in selected_services and ip, abuseipdb_lookup, ip)
+    
+    # New reconnaissance modules
+    run_mod("waf_detect", "waf_detect" in selected_services, detect_waf, url_norm)
+    run_mod("email_security", "email_security" in selected_services and domain, email_security_check, domain)
+    run_mod("port_scan", "port_scan" in selected_services and domain, port_scan, domain)
+    run_mod("asn_lookup", "asn_lookup" in selected_services and ip, asn_lookup, ip)
+    run_mod("favicon_hash", "favicon_hash" in selected_services, favicon_hash, url_norm)
+    
+    # Advanced reconnaissance modules
+    run_mod("ssl_tls", "ssl_tls" in selected_services and domain, ssl_tls_analysis, domain)
+    run_mod("subdomain_takeover", "subdomain_takeover" in selected_services and domain, subdomain_takeover_check, domain)
+    run_mod("http_methods", "http_methods" in selected_services, http_method_enum, url_norm)
+    run_mod("cors", "cors" in selected_services, cors_check, url_norm)
+    run_mod("cookie_audit", "cookie_audit" in selected_services, cookie_security_audit, url_norm)
+    run_mod("js_secrets", "js_secrets" in selected_services, js_secret_scan, url_norm)
+    
     run_mod("workflow",    "workflow" in selected_services and workflow_steps, run_workflow, url_norm, workflow_steps or [])
     run_mod("screenshot",  "screenshot" in selected_services, capture_screenshot, url_norm)
     run_mod("sandbox_report", "sandbox" in selected_services and html_text, submit_to_sandbox, html_text, url_norm)
@@ -2569,6 +4391,10 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
         summary["anomalies"] = compute_anomalies(url_norm, summary)
     except Exception:
         summary["anomalies"] = {"message": "Baseline unavailable."}
+    
+    # Apply MITRE ATT&CK mapping
+    results["mitre_attack"] = apply_mitre_mapping(results)
+    
     results["_summary"] = summary
     results["_meta"] = {
         "total_seconds": round(time.perf_counter() - t0, 3),
