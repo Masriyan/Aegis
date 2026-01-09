@@ -1,149 +1,124 @@
 # Security Policy
 
-Thank you for helping keep **AEGIS — Automated Enrichment & Global Intelligence Scanner** and its users safe.
+## 🛡️ Supported Versions
 
-> **Use this project ethically.** AEGIS is intended for educational and authorized security testing only.
-
----
-
-## 📦 Supported Versions
-
-We actively maintain the latest minor release and accept security reports for the versions below.
-
-| Version | Status          |
-|--------:|-----------------|
-| `main`  | ✅ Supported    |
-| `>= 1.0` (latest release series) | ✅ Supported |
-| `< 1.0` | ❌ End-of-life  |
-
-> Please reproduce issues against `main` when possible.
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.x.x   | :white_check_mark: |
 
 ---
 
-## 🔔 How to Report a Vulnerability
+## 🔐 Reporting a Vulnerability
 
-Please **do not** open public GitHub issues for security vulnerabilities.
+We take security seriously. If you discover a vulnerability in AEGIS, please report it responsibly.
 
-- Use GitHub’s **“Report a vulnerability”** (Security Advisories) on this repo; or  
-- Email the maintainers at **riyan@security-life.org**.
+### How to Report
 
-**Include** a clear description, impact, steps to reproduce (PoC), affected version/commit, and suggested remediation if any.
+**DO NOT** open a public GitHub issue for security vulnerabilities.
 
-### Optional: PGP
-If you prefer encryption, share your public key or request ours in your first email. Alternatively, attach your own public key and we will reply encrypted.
+Instead, please use one of these methods:
+
+1. **GitHub Security Advisories** (Preferred)
+   - Go to [Security Advisories](https://github.com/Masriyan/Aegis/security/advisories)
+   - Click "Report a vulnerability"
+
+2. **Email**
+   - Send details to the repository maintainer via GitHub profile
+
+### What to Include
+
+```
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if any)
+- Your contact information (optional)
+```
 
 ---
 
-## ⏱️ Disclosure & Response Timeline
+## ⏱️ Response Timeline
 
-We follow **coordinated disclosure**:
-
-- **Acknowledgement:** within **48 hours**  
-- **Initial triage:** within **5 business days** (CVSS estimate and scope confirmation)  
-- **Fix target:** as quickly as feasible; our general goal is **90 days** from triage. Critical issues may be expedited (7–14 days).  
-- **Credit:** We are happy to acknowledge reporters in release notes unless you prefer to remain anonymous.
-
-If a deadline needs extension (e.g., complex dependency chains), we’ll keep you informed.
+| Action | Timeframe |
+|--------|-----------|
+| Initial acknowledgment | 48 hours |
+| Preliminary assessment | 7 days |
+| Fix development | 14-30 days (severity dependent) |
+| Public disclosure | After fix is released |
 
 ---
 
 ## 🎯 Scope
 
-Reports are **in scope** when they affect code in this repository or the default configuration of AEGIS, including:
+### In Scope
+- Remote code execution
+- SQL injection
+- Cross-site scripting (XSS)
+- Authentication bypass
+- Sensitive data exposure
+- SSRF vulnerabilities
 
-- Web UI routes and rendering logic
-- OSINT/scan modules (incorrect trust boundaries, command or template injection, SSRF in fetchers, unsafe file writes)
-- Local storage & exports (SQLite, JSON/CSV/PDF) handling
-- Authentication/authorization (if introduced in the future)
-- Supply chain concerns specific to this project (e.g., unsafe update paths, pinned dependency tampering)
-
-### Out of Scope (examples)
-
-- Vulnerabilities in **third‑party services** (VirusTotal, OTX, Shodan, GreyNoise, AbuseIPDB, urlscan.io, crt.sh, Wayback Machine, etc.)  
-- **Denial of Service** via excessive volume or repeated heavy scans  
-- **Social engineering**, phishing, physical security, or policy issues  
-- **Best practice** requests without security impact (e.g., preference for different headers)  
-- **Clickjacking** on static pages with no sensitive action  
-- **Rate limiting** and generic CAPTCHAs  
-- Findings that require privileged local access beyond the app’s normal permissions
-
-If you’re unsure whether something is in scope, contact us privately and we’ll clarify.
+### Out of Scope
+- Denial of Service (DoS)
+- Social engineering
+- Physical attacks
+- Issues in dependencies (report to upstream)
+- Issues requiring user-installed malware
 
 ---
 
-## 🧪 Rules of Engagement (Good Faith Testing)
+## 🏆 Recognition
 
-To protect users and the ecosystem, please:
+We appreciate responsible disclosure. Contributors who report valid vulnerabilities will be:
 
-1. Do **not** perform destructive testing (no data corruption, no DDoS).  
-2. Do **not** exfiltrate more data than necessary to demonstrate impact.  
-3. Avoid privacy violations and access to third‑party data.  
-4. Use test targets you **own or are authorized** to test.  
-5. Follow applicable laws and terms of service.
+- Credited in release notes (unless anonymity is requested)
+- Added to our Security Hall of Fame
+- Considered for bug bounty rewards (when applicable)
 
 ---
 
-## 🛡️ Safe Harbor
+## 🔒 Security Best Practices for Users
 
-We will **not** pursue legal action or report you for good‑faith, authorized research that adheres to this policy. If legal action is initiated by a third party against you and you have complied with this policy, we will take steps to make it known that your actions were conducted in compliance with this policy.
+### When Running AEGIS
 
-This safe harbor does **not** cover actions that are illegal, dangerous, or that exceed the scope/methods outlined above.
+1. **API Keys** - Never commit `.env` files or expose API keys
+2. **Network** - Run on localhost or behind authentication
+3. **Updates** - Keep AEGIS and dependencies updated
+4. **Authorization** - Only scan targets you own or have permission to test
 
----
+### Environment Setup
 
-## 🧮 Severity & Triage
+```bash
+# Create .env from template
+cp .env.example .env
 
-We typically assess severity using **CVSS v3.1**. Please feel free to propose a base score or vector as part of your report; we’ll confirm during triage.
+# Set restrictive permissions
+chmod 600 .env
 
-Priority is based on a combination of severity, exploitability, and user impact.
-
----
-
-## 🔗 Third‑Party Dependencies
-
-Security issues found in dependencies should be reported to the **upstream maintainers** first. If a dependency issue impacts AEGIS directly, feel free to notify us as well so we can track, patch, or mitigate.
-
-We strive to keep dependencies current and may ship emergency pins or temporary workarounds when upstream fixes are pending.
-
----
-
-## 🧾 Report Template
-
-You may use this template when submitting:
-
-```
-Title: <short clear title>
-Component: <module/route/dependency>
-Version/Commit: <tag or commit hash>
-Severity (CVSS): <optional vector and score>
-
-Summary:
-- <one or two sentences>
-
-Steps to Reproduce:
-1) …
-2) …
-3) …
-
-Impact:
-- <what can an attacker achieve?>
-
-Proof of Concept:
-- <PoC code or request sequence>
-
-Suggested Remediation:
-- <optional fix ideas>
-
-Reporter:
-- <name or “Anonymous”>
-Contact:
-- <email or preferred method>
-Disclosure:
-- <public after fix? keep private? desire credit?>
+# Never use in production without authentication
+# Consider running behind a reverse proxy with auth
 ```
 
 ---
 
-## 🙏 Thanks
+## 📋 Security Checklist for Contributors
 
-We appreciate responsible security research. Your efforts help keep the community safe.
+- [ ] No hardcoded credentials or secrets
+- [ ] Input validation on user-supplied data
+- [ ] Proper error handling (no stack traces in production)
+- [ ] Dependencies reviewed for known vulnerabilities
+- [ ] No arbitrary code execution from user input
+
+---
+
+## 🔗 Related Resources
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [CWE/SANS Top 25](https://cwe.mitre.org/top25/archive/2023/2023_top25_list.html)
+- [GitHub Security Best Practices](https://docs.github.com/en/code-security)
+
+---
+
+<p align="center">
+  <strong>Thank you for helping keep AEGIS secure! 🛡️</strong>
+</p>
