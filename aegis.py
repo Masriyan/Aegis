@@ -3088,6 +3088,14 @@ def ssl_tls_analysis(domain: str):
     
     try:
         context = ssl.create_default_context()
+        # Enforce modern TLS (TLS 1.2+) for the analysis connection
+        try:
+            # Preferred on Python 3.7+
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+        except (AttributeError, ValueError):
+            # Fallback for older Python/OpenSSL: explicitly disable TLS 1.0 and 1.1
+            if hasattr(ssl, "OP_NO_TLSv1") and hasattr(ssl, "OP_NO_TLSv1_1"):
+                context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
         with socket.create_connection((domain, 443), timeout=10) as sock:
             with context.wrap_socket(sock, server_hostname=domain) as ssock:
                 result["protocol"] = ssock.version()
