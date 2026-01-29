@@ -1,43 +1,76 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Threat Hunter Swiss Army Knife — Pro Windows Build (2025-08)
+AEGIS v4.0 — Enterprise Threat Hunter & Attack Surface Management Platform
 
-Features
+================================================================================
+                    AUTOMATED ENRICHMENT & GLOBAL INTELLIGENCE SCANNER
+================================================================================
+
+Enhanced Features (v4.0 - Innovative Analysis):
+- 🔬 Entropy-based Secret Scanner (no API needed)
+- 📝 Recon Wordlist Generator (local processing)
+- 🔐 Password Policy Detector (form analysis)
+- 📈 Technology Timeline (Archive.org integration)
+- 📊 Scan Diff Analyzer (change detection)
+- 🗺️ Attack Surface Mapper (visual graph)
+- 📋 Report Narrative Generator (management-friendly)
+- ⏰ Delta Alert System (baseline monitoring)
+
+Enhanced Features (v3.0):
+- 🤖 AI-Powered Threat Analysis Engine
+- 🔐 Advanced Vulnerability Correlation (CVE/EPSS/KEV)
+- 🌐 Extended OSINT (20+ intelligence sources)
+- ⚔️ Active Security Testing Suite (authorized mode)
+- 📊 Continuous Attack Surface Monitoring
+- 📈 Interactive Visualization Dashboard
+- 🔗 Integration Hub (REST API, SIEM, webhooks)
+- 🎯 Multi-Target Campaign Scanning
+
+Core Features:
 - Passive & semi-offensive modules (opt-in)
-- Subdomain scanner:
-    * Defensive: CT logs via crt.sh (passive)
-    * Semi: adds DNS brute-force (limited, concurrent)
+- Subdomain enumeration (CT logs + bruteforce)
 - Presets picker (Recon / Passive / Semi-offensive)
 - Results filter + expand/collapse all
 - History & permalinks (/history, /view/<id>)
-- Summary header + per-module timings
-- Per-module export: Subdomains CSV
-- Human-readable rendering for all modules
-- Export CSV/JSON; PDF via WeasyPrint if installed (optional)
-- Windows-friendly: DB path anchored to script folder
+- AI-enhanced risk scoring with MITRE ATT&CK mapping
+- Export: CSV/JSON/PDF/STIX/Splunk/Elastic
 
 IMPORTANT: For educational and authorized testing only.
+
+
+
+================================================================================
 """
 
 import asyncio
 import base64
 import csv
+import hashlib
 import io
 import json
+import logging
 import os
+import random
 import re
 import socket
 import ssl
 import sqlite3
+import statistics
+import string
 import time
+import threading
+import traceback
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from urllib.parse import urljoin, urlparse
+from functools import wraps
+from typing import Dict, List, Optional, Tuple, Any
+from urllib.parse import urljoin, urlparse, quote, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template_string, request, Response, g, make_response
+from flask import Flask, render_template_string, request, Response, g, make_response, jsonify
 
 # Optional .env support
 try:
@@ -46,14 +79,109 @@ try:
 except ImportError:
     pass
 
-# Optional PDF support (WeasyPrint is tricky on Windows; optional)
+# Optional PDF support
 try:
-    from weasyprint import HTML
+    from weasyprint import HTML as WeasyHTML
 except ImportError:
-    HTML = None
+    WeasyHTML = None
+
+# Optional AI libraries
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    openai = None
+    OPENAI_AVAILABLE = False
+
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    anthropic = None
+    ANTHROPIC_AVAILABLE = False
+
+# Optional ML libraries
+try:
+    from sklearn.ensemble import IsolationForest
+    from sklearn.preprocessing import StandardScaler
+    import numpy as np
+    ML_AVAILABLE = True
+except ImportError:
+    IsolationForest = None
+    StandardScaler = None
+    np = None
+    ML_AVAILABLE = False
+
+# Optional visualization
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    px = None
+    go = None
+    PLOTLY_AVAILABLE = False
+
+try:
+    import networkx as nx
+    NETWORKX_AVAILABLE = True
+except ImportError:
+    nx = None
+    NETWORKX_AVAILABLE = False
+
+# Optional async HTTP
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    httpx = None
+    HTTPX_AVAILABLE = False
+
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    aiohttp = None
+    AIOHTTP_AVAILABLE = False
+
+# Optional Censys
+try:
+    from censys.search import CensysHosts
+    CENSYS_AVAILABLE = True
+except ImportError:
+    CensysHosts = None
+    CENSYS_AVAILABLE = False
+
+# Optional background scheduling
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    SCHEDULER_AVAILABLE = True
+except ImportError:
+    BackgroundScheduler = None
+    SCHEDULER_AVAILABLE = False
+
+# Optional data processing
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    pd = None
+    PANDAS_AVAILABLE = False
 
 import dns.resolver
 import whois
+
+# v6.1.0 Enhancement Modules
+try:
+    from aegis_enhancements import run_enhanced_modules
+    ENHANCEMENTS_AVAILABLE = True
+except ImportError:
+    run_enhanced_modules = None
+    ENHANCEMENTS_AVAILABLE = False
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('AEGIS')
 
 # ---------------- Config ----------------
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -62,8 +190,9 @@ DEFAULT_TIMEOUT = 15
 USER_AGENT = "Mozilla/5.0 (AegisSparks/6.0; +https://security-life.org)"
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": USER_AGENT})
+AEGIS_VERSION = "6.1.0"
 
-# API keys (optional)
+# API keys (optional) - Core
 VT_API_KEY = os.getenv("VT_API_KEY", "")
 OTX_API_KEY = os.getenv("OTX_API_KEY", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
@@ -72,15 +201,58 @@ GREYNOISE_API_KEY = os.getenv("GREYNOISE_API_KEY", "")
 ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY", "")
 SECURITYTRAILS_API_KEY = os.getenv("SECURITYTRAILS_API_KEY", "")
 HIBP_API_KEY = os.getenv("HIBP_API_KEY", "")
+
+# Extended OSINT API Keys
+HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "")
+CENSYS_API_ID = os.getenv("CENSYS_API_ID", "")
+CENSYS_API_SECRET = os.getenv("CENSYS_API_SECRET", "")
+LEAKCHECK_API_KEY = os.getenv("LEAKCHECK_API_KEY", "")
+FOFA_API_KEY = os.getenv("FOFA_API_KEY", "")
+FOFA_EMAIL = os.getenv("FOFA_EMAIL", "")
+DEHASHED_API_KEY = os.getenv("DEHASHED_API_KEY", "")
+DEHASHED_EMAIL = os.getenv("DEHASHED_EMAIL", "")
+FULLHUNT_API_KEY = os.getenv("FULLHUNT_API_KEY", "")
+ZOOMEYE_API_KEY = os.getenv("ZOOMEYE_API_KEY", "")
+BINARYEDGE_API_KEY = os.getenv("BINARYEDGE_API_KEY", "")
+INTELX_API_KEY = os.getenv("INTELX_API_KEY", "")
+BUILTWITH_API_KEY = os.getenv("BUILTWITH_API_KEY", "")
+WHOISXML_API_KEY = os.getenv("WHOISXML_API_KEY", "")
+
+# AI API Keys
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+AI_MODEL = os.getenv("AI_MODEL", "gpt-4-turbo-preview")
+AI_ENABLED = os.getenv("AI_ENABLED", "true").lower() == "true"
+
+# Notifications
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-SCREENSHOT_TIMEOUT = int(os.getenv("SCREENSHOT_TIMEOUT", "20"))
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# Thresholds
 ALERT_THRESHOLD = int(os.getenv("ALERT_THRESHOLD", "60"))
+SCREENSHOT_TIMEOUT = int(os.getenv("SCREENSHOT_TIMEOUT", "20"))
+AUTO_TICKET_THRESHOLD = int(os.getenv("AUTO_TICKET_THRESHOLD", "70"))
+WORKFLOW_MAX_STEPS = int(os.getenv("WORKFLOW_MAX_STEPS", "15"))
+MAX_CONCURRENT_SCANS = int(os.getenv("MAX_CONCURRENT_SCANS", "5"))
+
+# Cloud & Sandbox
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 MALWARE_SANDBOX_URL = os.getenv("MALWARE_SANDBOX_URL", "")
 MALWARE_SANDBOX_KEY = os.getenv("MALWARE_SANDBOX_KEY", "")
 TICKET_WEBHOOK_URL = os.getenv("TICKET_WEBHOOK_URL", "")
-AUTO_TICKET_THRESHOLD = int(os.getenv("AUTO_TICKET_THRESHOLD", "70"))
-WORKFLOW_MAX_STEPS = int(os.getenv("WORKFLOW_MAX_STEPS", "15"))
+
+# SIEM Integration
+SPLUNK_HEC_URL = os.getenv("SPLUNK_HEC_URL", "")
+SPLUNK_HEC_TOKEN = os.getenv("SPLUNK_HEC_TOKEN", "")
+ELASTIC_URL = os.getenv("ELASTIC_URL", "")
+ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY", "")
+
+# API Rate Limiting
+API_RATE_LIMIT = int(os.getenv("API_RATE_LIMIT", "100"))  # requests per minute
+API_KEY_SECRET = os.getenv("API_KEY_SECRET", "".join(random.choices(string.ascii_letters + string.digits, k=32)))
 
 try:
     from pyppeteer import launch
@@ -532,9 +704,15 @@ INDEX_HTML = r"""
         
         <!-- Discovery Modules -->
         <div class="mb-6">
-          <div class="category-header">
-            <div class="category-icon bg-blue-500/20 text-blue-400"><i class="fas fa-magnifying-glass"></i></div>
-            <span class="text-sm font-medium text-gray-400">Discovery & Fingerprinting</span>
+          <div class="category-header justify-between group/header">
+            <div class="flex items-center gap-3">
+              <div class="category-icon bg-blue-500/20 text-blue-400"><i class="fas fa-magnifying-glass"></i></div>
+              <span class="text-sm font-medium text-gray-400">Discovery & Fingerprinting</span>
+            </div>
+            <div class="flex gap-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-blue-500 hover:text-white transition-colors" onclick="selectCategory(this, true)">All</button>
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-slate-600 transition-colors" onclick="selectCategory(this, false)">None</button>
+            </div>
           </div>
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {% for label, val, icon in [
@@ -557,9 +735,15 @@ INDEX_HTML = r"""
         
         <!-- DNS & Domain Modules -->
         <div class="mb-6">
-          <div class="category-header">
-            <div class="category-icon bg-purple-500/20 text-purple-400"><i class="fas fa-network-wired"></i></div>
-            <span class="text-sm font-medium text-gray-400">DNS & Domain Intelligence</span>
+          <div class="category-header justify-between group/header">
+            <div class="flex items-center gap-3">
+              <div class="category-icon bg-purple-500/20 text-purple-400"><i class="fas fa-network-wired"></i></div>
+              <span class="text-sm font-medium text-gray-400">DNS & Domain Intelligence</span>
+            </div>
+            <div class="flex gap-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-purple-500 hover:text-white transition-colors" onclick="selectCategory(this, true)">All</button>
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-slate-600 transition-colors" onclick="selectCategory(this, false)">None</button>
+            </div>
           </div>
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {% for label, val, icon in [
@@ -582,9 +766,15 @@ INDEX_HTML = r"""
         
         <!-- Threat Intel Modules -->
         <div class="mb-6">
-          <div class="category-header">
-            <div class="category-icon bg-red-500/20 text-red-400"><i class="fas fa-biohazard"></i></div>
-            <span class="text-sm font-medium text-gray-400">Threat Intelligence</span>
+          <div class="category-header justify-between group/header">
+            <div class="flex items-center gap-3">
+              <div class="category-icon bg-red-500/20 text-red-400"><i class="fas fa-biohazard"></i></div>
+              <span class="text-sm font-medium text-gray-400">Threat Intelligence</span>
+            </div>
+            <div class="flex gap-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-red-500 hover:text-white transition-colors" onclick="selectCategory(this, true)">All</button>
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-slate-600 transition-colors" onclick="selectCategory(this, false)">None</button>
+            </div>
           </div>
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {% for label, val, icon in [
@@ -670,6 +860,247 @@ INDEX_HTML = r"""
             {% endfor %}
           </div>
         </div>
+        
+        <!-- v3.0 Extended OSINT Modules -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-cyan-500/20 text-cyan-400"><i class="fas fa-globe"></i></div>
+            <span class="text-sm font-medium text-gray-400">Extended OSINT (v3.0)</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Hunter.io', 'hunter_io', 'fa-envelope'),
+              ('Censys', 'censys', 'fa-server'),
+              ('GitHub Dorks', 'github_dorks', 'fa-brands fa-github'),
+              ('FullHunt', 'fullhunt', 'fa-crosshairs'),
+              ('BinaryEdge', 'binaryedge', 'fa-database'),
+              ('BuiltWith', 'builtwith', 'fa-cubes'),
+              ('LeakCheck', 'leakcheck', 'fa-droplet')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-500/20 peer-checked:bg-cyan-500 peer-checked:text-white transition-all">
+                <i class="{{ 'fab' if 'brands' in icon else 'fas' }} {{ icon.replace('fa-brands ', '') }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <!-- v3.0 Vulnerability & Monitoring -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-orange-500/20 text-orange-400"><i class="fas fa-shield-virus"></i></div>
+            <span class="text-sm font-medium text-gray-400">Vulnerability & Monitoring (v3.0)</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Enhanced CVE', 'enhanced_cve', 'fa-bug-slash'),
+              ('Cert Monitor', 'cert_monitor', 'fa-certificate')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-400 group-hover:bg-orange-500/20 peer-checked:bg-orange-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        
+        <!-- v3.0 Active Security Testing (Semi/Active Mode) -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-pink-500/20 text-pink-400"><i class="fas fa-bolt"></i></div>
+            <span class="text-sm font-medium text-gray-400">Active Security Testing (v3.0 - Requires Authorization)</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Auth Testing', 'auth_test', 'fa-key'),
+              ('API Security', 'api_security', 'fa-plug'),
+              ('XXE Detection', 'xxe_test', 'fa-code'),
+              ('SSRF Detection', 'ssrf_test', 'fa-network-wired'),
+              ('Open Redirects', 'redirect_test', 'fa-share'),
+              ('Header Injection', 'header_test', 'fa-heading')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-pink-500/10 flex items-center justify-center text-pink-400 group-hover:bg-pink-500/20 peer-checked:bg-pink-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="text-xs text-pink-400/70 mt-2 ml-2"><i class="fas fa-exclamation-triangle mr-1"></i>These modules require explicit authorization and semi/active mode.</p>
+        </div>
+        
+        <!-- v4.0 Innovative Analysis -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-indigo-500/20 text-indigo-400"><i class="fas fa-lightbulb"></i></div>
+            <span class="text-sm font-medium text-gray-400">Innovative Analysis (v4.0 - No API Required)</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Scan Diff', 'scan_diff', 'fa-code-compare'),
+              ('Wordlist Gen', 'wordlist_gen', 'fa-list-ol'),
+              ('Password Policy', 'password_policy', 'fa-key'),
+              ('Tech Timeline', 'tech_timeline', 'fa-timeline'),
+              ('Entropy Scan', 'entropy_scan', 'fa-chart-bar'),
+              ('Attack Map', 'attack_map', 'fa-diagram-project'),
+              ('Report Narrative', 'report_narrative', 'fa-file-lines'),
+              ('Delta Alerts', 'delta_alerts', 'fa-bell')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500/20 peer-checked:bg-indigo-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="text-xs text-indigo-400/70 mt-2 ml-2"><i class="fas fa-sparkles mr-1"></i>100% local processing - no external APIs needed.</p>
+        </div>
+        
+        <!-- v5.0 Advanced Security -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-rose-500/20 text-rose-400"><i class="fas fa-shield-virus"></i></div>
+            <span class="text-sm font-medium text-gray-400">Advanced Security (v5.0)</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Crypto Scanner', 'crypto_scan', 'fa-bitcoin-sign'),
+              ('Privacy Detector', 'privacy_detect', 'fa-user-secret'),
+              ('DB Leak Detect', 'db_leak', 'fa-database'),
+              ('JS Deobfuscate', 'js_deobfuscate', 'fa-code'),
+              ('Homoglyph Scan', 'homoglyph_scan', 'fa-font'),
+              ('Ghost Finder', 'ghost_finder', 'fa-ghost'),
+              ('Honeypot Detect', 'honeypot_detect', 'fa-jar'),
+              ('Geo Block', 'geo_block', 'fa-globe'),
+              ('Compliance Check', 'compliance_check', 'fa-clipboard-check'),
+              ('Vuln Predict', 'vuln_predict', 'fa-bug')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-400 group-hover:bg-rose-500/20 peer-checked:bg-rose-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="text-xs text-rose-400/70 mt-2 ml-2"><i class="fas fa-lock mr-1"></i>Advanced threat detection - 100% local.</p>
+        </div>
+        
+        <!-- v5.0 Intelligence & Experimental -->
+        <div class="mb-6">
+          <div class="category-header">
+            <div class="category-icon bg-amber-500/20 text-amber-400"><i class="fas fa-flask"></i></div>
+            <span class="text-sm font-medium text-gray-400">Intelligence & Experimental (v5.0)</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Media Assets', 'media_scan', 'fa-photo-film'),
+              ('Mobile Apps', 'mobile_detect', 'fa-mobile-screen'),
+              ('Email Harvest', 'email_harvest', 'fa-envelope-open-text'),
+              ('Brand Extract', 'brand_extract', 'fa-palette'),
+              ('Website DNA', 'website_dna', 'fa-dna'),
+              ('Timing Analysis', 'timing_analysis', 'fa-stopwatch'),
+              ('API Fuzzer', 'api_fuzzer', 'fa-plug'),
+              ('Link Graph', 'link_graph', 'fa-share-nodes'),
+              ('Sub Cluster', 'sub_cluster', 'fa-object-group'),
+              ('Site Value', 'site_value', 'fa-coins'),
+              ('Cookie Consent', 'cookie_consent', 'fa-cookie-bite')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/20 peer-checked:bg-amber-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="text-xs text-amber-400/70 mt-2 ml-2"><i class="fas fa-wand-sparkles mr-1"></i>Experimental intelligence gathering.</p>
+        </div>
+        
+        <!-- v6.0 SOCMINT & Ransomware Intel -->
+        <div class="mb-6">
+          <div class="category-header justify-between group/header">
+            <div class="flex items-center gap-3">
+              <div class="category-icon bg-red-600/20 text-red-400"><i class="fas fa-skull-crossbones"></i></div>
+              <span class="text-sm font-medium text-gray-400">SOCMINT & Threat Intel (v6.0)</span>
+            </div>
+            <div class="flex gap-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-red-600 hover:text-white transition-colors" onclick="selectCategory(this, true)">All</button>
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-slate-600 transition-colors" onclick="selectCategory(this, false)">None</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Social Media Intel', 'social_intel', 'fa-users'),
+              ('Social Extractor', 'social_extract', 'fa-share-alt'),
+              ('Ransomware Check', 'ransomware_check', 'fa-virus'),
+              ('Ransom Groups', 'ransom_groups', 'fa-skull'),
+              ('Recent Victims', 'ransom_victims', 'fa-list')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-red-600/10 flex items-center justify-center text-red-400 group-hover:bg-red-600/20 peer-checked:bg-red-600 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="text-xs text-red-400/70 mt-2 ml-2"><i class="fas fa-exclamation-circle mr-1"></i>SOCMINT & Ransomware intelligence from ransomware.live & ransomlook.io</p>
+        </div>
+        
+        <!-- v6.1.0 Enhanced Analysis (Local-Only) -->
+        <div class="mb-6">
+          <div class="category-header justify-between group/header">
+            <div class="flex items-center gap-3">
+              <div class="category-icon bg-emerald-500/20 text-emerald-400"><i class="fas fa-chart-pie"></i></div>
+              <span class="text-sm font-medium text-gray-400">Enhanced Analysis (v6.1 - 100% Local)</span>
+              <span class="px-2 py-0.5 text-[0.6rem] uppercase tracking-wider bg-emerald-500/20 text-emerald-400 rounded-full">NEW</span>
+            </div>
+            <div class="flex gap-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-emerald-600 hover:text-white transition-colors" onclick="selectCategory(this, true)">All</button>
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-slate-600 transition-colors" onclick="selectCategory(this, false)">None</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Security Score', 'security_posture', 'fa-gauge-high'),
+              ('Attack Vectors', 'attack_vectors', 'fa-route'),
+              ('Smart Summary', 'smart_summary', 'fa-wand-magic-sparkles'),
+              ('HTTP Fingerprint', 'http_fingerprint', 'fa-fingerprint'),
+              ('Input Validation', 'input_validation', 'fa-keyboard'),
+              ('CSP Analysis', 'csp_analysis', 'fa-shield-halved'),
+              ('Recon Detection', 'recon_detection', 'fa-user-secret'),
+              ('JS Complexity', 'js_complexity', 'fa-file-code'),
+              ('Session Analysis', 'session_analysis', 'fa-id-badge'),
+              ('Rate Limiting', 'rate_limiting', 'fa-tachometer-alt'),
+              ('Cache Analysis', 'cache_analysis', 'fa-box-archive'),
+              ('Form Security', 'form_security', 'fa-wpforms'),
+              ('Meta Tags', 'meta_tags', 'fa-tags')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:bg-emerald-500/20 peer-checked:bg-emerald-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="text-xs text-emerald-400/70 mt-2 ml-2"><i class="fas fa-sparkles mr-1"></i>Intelligent analysis with risk scoring, attack mapping, and smart summaries — no APIs required.</p>
+        </div>
       </div>
 
       <!-- Advanced Options -->
@@ -741,7 +1172,7 @@ INDEX_HTML = r"""
 
     <!-- Footer -->
     <footer class="mt-8 text-center text-xs text-gray-600 fade-in stagger-3">
-      <p>AEGIS v2.0 — Threat Hunter Swiss Army Knife</p>
+      <p>AEGIS v6.0 — Advanced Threat Hunter & SOCMINT Swiss Army Knife</p>
       <p class="mt-1">For authorized security testing only. <a href="https://security-life.org" class="text-blue-500 hover:underline">security-life.org</a></p>
     </footer>
   </div>
@@ -779,6 +1210,15 @@ INDEX_HTML = r"""
         this.closest('.module-card').classList.toggle('selected', this.checked);
       });
     });
+
+    // Category Selection Helper
+    window.selectCategory = function(btn, checked) {
+       const wrapper = btn.closest('.mb-6');
+       wrapper.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+         cb.checked = checked;
+         cb.dispatchEvent(new Event('change'));
+       });
+    };
 
     // Presets with new modules
     const presets = {
@@ -860,6 +1300,7 @@ RESULTS_HTML = r"""
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AEGIS — Threat Hunt Results</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -1044,6 +1485,21 @@ RESULTS_HTML = r"""
       </div>
     </div>
     {% endif %}
+
+    <!-- Analytics Charts -->
+    <div class="glass-card p-6 mb-8">
+      <h3 class="text-lg font-semibold text-gray-300 mb-6 flex items-center gap-2">
+        <i class="fas fa-chart-pie text-purple-400"></i> Threat Landscape Analysis
+      </h3>
+      <div class="grid md:grid-cols-2 gap-8">
+        <div class="h-64 relative">
+          <canvas id="riskChart"></canvas>
+        </div>
+        <div class="h-64 relative">
+          <canvas id="coverageChart"></canvas>
+        </div>
+      </div>
+    </div>
 
     <!-- Action Buttons -->
     <div class="glass-card p-4 mb-6">
@@ -1942,8 +2398,828 @@ RESULTS_HTML = r"""
             <p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No findings mapped to MITRE ATT&CK techniques.</p>
           {% endif %}
 
+        {# ============ v5.0 MODULE RESULTS ============ #}
+
+        {% elif key == 'crypto_scan' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge {% if value.total_found > 0 %}bad{% else %}ok{% endif %}">{{ value.total_found }} addresses found</span>
+            <span class="text-sm text-gray-400">Types: {{ value.types_detected|join(', ') or 'None' }}</span>
+          </div>
+          {% if value.addresses %}
+          <table><thead><tr><th>Type</th><th>Address</th><th>Risk</th></tr></thead>
+          <tbody>{% for a in value.addresses[:20] %}
+            <tr><td>{{ a.type }}</td><td class="font-mono text-xs">{{ a.address[:40] }}...</td>
+            <td><span class="badge {% if a.risk == 'high' %}bad{% else %}warn{% endif %}">{{ a.risk }}</span></td></tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'privacy_detect' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge {% if value.risk_level == 'high' %}bad{% elif value.risk_level == 'medium' %}warn{% else %}ok{% endif %}">{{ value.risk_level }} risk</span>
+            <span class="text-sm text-gray-400">Privacy Score: {{ value.privacy_score }}/100</span>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-eye mr-2 text-red-400"></i>Trackers Found</div>
+              {% if value.trackers %}<div class="flex flex-wrap gap-2">{% for t in value.trackers %}<span class="badge warn">{{ t }}</span>{% endfor %}</div>
+              {% else %}<span class="text-gray-500 text-sm">None detected</span>{% endif %}
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-fingerprint mr-2 text-purple-400"></i>Fingerprinting</div>
+              <span class="text-sm text-gray-400">{{ value.fingerprinting_signals }} techniques detected</span>
+            </div>
+          </div>
+
+        {% elif key == 'homoglyph_scan' %}
+          <div class="text-sm text-gray-400 mb-3">Original domain: <span class="text-blue-400">{{ value.original }}</span> · {{ value.total_variants }} variants generated</div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-font mr-2 text-yellow-400"></i>Homoglyph Variants</div>
+              <div class="flex flex-wrap gap-2">{% for v in value.homoglyph_variants[:10] %}<span class="badge warn">{{ v.variant }}</span>{% endfor %}</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-keyboard mr-2 text-blue-400"></i>Typo Variants</div>
+              <div class="flex flex-wrap gap-2">{% for v in value.typo_variants[:10] %}<span class="badge sev-low">{{ v.variant }}</span>{% endfor %}</div>
+            </div>
+          </div>
+
+        {% elif key == 'ransomware_check' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.found %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>FOUND IN VICTIM LIST</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>Not found</span>
+            {% endif %}
+            <span class="text-sm text-gray-400">Checked: {{ value.sources_checked|join(', ') }}</span>
+          </div>
+          {% if value.matches %}
+          <table><thead><tr><th>Source</th><th>Group</th><th>Date</th><th>Country</th></tr></thead>
+          <tbody>{% for m in value.matches %}
+            <tr><td>{{ m.source }}</td><td class="text-red-400 font-bold">{{ m.group }}</td><td>{{ m.date }}</td><td>{{ m.country }}</td></tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'ransom_groups' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total_groups }} active ransomware groups tracked</div>
+          <table><thead><tr><th>Group Name</th><th>Source</th><th>Status</th></tr></thead>
+          <tbody>{% for g in value.groups[:30] %}
+            <tr><td class="text-red-400">{{ g.name }}</td><td>{{ g.source }}</td><td><span class="badge {% if g.status == 'active' %}bad{% else %}warn{% endif %}">{{ g.status or 'unknown' }}</span></td></tr>
+          {% endfor %}</tbody></table>
+
+        {% elif key == 'ransom_victims' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total }} recent victims · Retrieved: {{ value.retrieved_at[:10] }}</div>
+          <table><thead><tr><th>Victim</th><th>Group</th><th>Date</th><th>Country</th></tr></thead>
+          <tbody>{% for v in value.victims %}
+            <tr><td>{{ v.name }}</td><td class="text-red-400">{{ v.group }}</td><td>{{ v.date }}</td><td>{{ v.country }}</td></tr>
+          {% endfor %}</tbody></table>
+
+        {% elif key == 'social_intel' %}
+          <div class="text-sm text-gray-400 mb-3">Query: <span class="text-blue-400">{{ value.query }}</span> · {{ value.total_platforms }} platforms checked</div>
+          <div class="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {% for p in value.profiles[:30] %}
+            <a href="{{ p.url }}" target="_blank" class="bg-slate-800/40 rounded-lg p-2 text-center hover:bg-slate-700/60 transition-all">
+              <i class="fab {{ p.icon }} text-lg mb-1"></i>
+              <div class="text-xs text-gray-400">{{ p.platform }}</div>
+            </a>
+          {% endfor %}
+          </div>
+
+        {% elif key == 'social_extract' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total_found }} social profiles extracted from page</div>
+          <div class="grid md:grid-cols-2 gap-4">
+          {% for platform, handles in value.profiles.items() %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2 capitalize">{{ platform }}</div>
+              <div class="flex flex-wrap gap-2">{% for h in handles %}<span class="badge ok">{{ h }}</span>{% endfor %}</div>
+            </div>
+          {% endfor %}
+          </div>
+
+        {% elif key == 'compliance_check' %}
+          <div class="text-sm text-gray-400 mb-3">Overall Score: <span class="text-2xl font-bold {% if value.overall_score >= 70 %}text-green-400{% elif value.overall_score >= 40 %}text-yellow-400{% else %}text-red-400{% endif %}">{{ value.overall_score }}%</span></div>
+          <div class="grid md:grid-cols-3 gap-4">
+          {% for standard, data in value.compliance.items() %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300 uppercase">{{ standard }}</span>
+                <span class="badge {% if data.score >= 70 %}ok{% elif data.score >= 40 %}warn{% else %}bad{% endif %}">{{ data.score }}%</span>
+              </div>
+              <div class="text-xs text-gray-500">{{ data.checks_passed }}/{{ data.total_checks }} checks passed</div>
+            </div>
+          {% endfor %}
+          </div>
+
+        {% elif key == 'ghost_finder' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.paths_checked }} paths checked · {{ value.paths_found }} found</div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-green-400 mb-2"><i class="fas fa-unlock mr-2"></i>Accessible ({{ value.accessible|length }})</div>
+              {% for p in value.accessible %}<div class="text-sm font-mono">{{ p.path }} <span class="badge ok">{{ p.status }}</span></div>{% endfor %}
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-yellow-400 mb-2"><i class="fas fa-lock mr-2"></i>Protected ({{ value.protected|length }})</div>
+              {% for p in value.protected %}<div class="text-sm font-mono">{{ p.path }} <span class="badge warn">{{ p.status }}</span></div>{% endfor %}
+            </div>
+          </div>
+
+        {% elif key == 'link_graph' %}
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-blue-400 mb-2"><i class="fas fa-link mr-2"></i>Internal Links ({{ value.internal_count }})</div>
+              <div class="max-h-40 overflow-y-auto text-xs">{% for l in value.internal_links[:20] %}<div class="font-mono text-gray-400">{{ l }}</div>{% endfor %}</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-purple-400 mb-2"><i class="fas fa-external-link mr-2"></i>External Domains ({{ value.external_count }})</div>
+              <div class="max-h-40 overflow-y-auto text-xs">{% for d in value.external_domains[:20] %}<div class="font-mono text-gray-400">{{ d }}</div>{% endfor %}</div>
+            </div>
+          </div>
+
+        {% elif key == 'website_dna' %}
+          <div class="text-sm text-gray-400 mb-3">DNA Hash: <span class="font-mono text-blue-400">{{ value.dna_hash }}</span></div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2">Structure</div>
+              <div class="text-xs text-gray-400">Total tags: {{ value.structure.total_tags }} · Unique: {{ value.structure.unique_tags }}</div>
+              <div class="text-xs text-gray-400">Scripts: {{ value.structure.script_count }} · Forms: {{ 'Yes' if value.structure.has_forms else 'No' }}</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2">Tech Signature</div>
+              <div class="flex flex-wrap gap-1">{% for t in value.tech_signature %}<span class="badge sev-low">{{ t }}</span>{% endfor %}</div>
+            </div>
+          </div>
+
+        {% elif key == 'vuln_predict' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.risk_technologies }} risky technologies detected</div>
+          {% if value.predictions %}
+          <table><thead><tr><th>Technology</th><th>Potential Issues</th><th>Recommendation</th></tr></thead>
+          <tbody>{% for p in value.predictions %}
+            <tr><td class="text-yellow-400">{{ p.technology }}</td><td class="text-xs">{{ p.potential_issues|join(', ') }}</td><td class="text-xs text-gray-400">{{ p.recommendation }}</td></tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>{{ value.recommendation }}</p>{% endif %}
+
+        {% elif key == 'db_leak' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge {% if value.risk_level == 'critical' %}bad{% else %}ok{% endif %}">{{ value.risk_level }} risk</span>
+            <span class="text-sm text-gray-400">{{ value.leaks_found }} leak patterns detected</span>
+          </div>
+          {% if value.details %}
+          <table><thead><tr><th>Type</th><th>Matches</th><th>Severity</th></tr></thead>
+          <tbody>{% for d in value.details %}
+            <tr><td>{{ d.type }}</td><td class="text-xs font-mono">{{ d.matches[:5]|join(', ') }}</td>
+            <td><span class="badge {% if d.severity == 'high' %}bad{% else %}warn{% endif %}">{{ d.severity }}</span></td></tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No database leaks detected.</p>{% endif %}
+
+        {% elif key == 'js_deobfuscate' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge {% if value.risk_level == 'critical' %}bad{% elif value.risk_level == 'high' %}sev-high{% else %}ok{% endif %}">{{ value.risk_level }} risk</span>
+            <span class="text-sm text-gray-400">Obfuscation Score: {{ value.score }}/100</span>
+          </div>
+          {% if value.techniques %}
+          <table><thead><tr><th>Technique</th><th>Occurrences</th><th>Risk</th></tr></thead>
+          <tbody>{% for t in value.techniques %}
+            <tr><td>{{ t.technique }}</td><td>{{ t.occurrences }}</td>
+            <td><span class="badge {% if t.risk == 'high' %}bad{% else %}warn{% endif %}">{{ t.risk }}</span></td></tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No obfuscation patterns detected.</p>{% endif %}
+
+        {% elif key == 'honeypot_detect' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.is_honeypot %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>HONEYPOT DETECTED</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No honeypot indicators</span>
+            {% endif %}
+            <span class="text-sm text-gray-400">Confidence: {{ value.confidence }}</span>
+          </div>
+          {% if value.indicators %}
+          <table><thead><tr><th>Type</th><th>Indicator</th><th>Confidence</th></tr></thead>
+          <tbody>{% for i in value.indicators %}
+            <tr><td>{{ i.type }}</td><td>{{ i.indicator }}</td><td><span class="badge warn">{{ i.confidence }}</span></td></tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'geo_block' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.geo_blocked %}
+              <span class="badge bad"><i class="fas fa-ban mr-1"></i>GEO-BLOCKED</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No geo-blocking detected</span>
+            {% endif %}
+            {% if value.cdn_detected %}<span class="badge sev-low">CDN: {{ value.cdn_detected }}</span>{% endif %}
+          </div>
+          {% if value.indicators %}<div class="text-xs text-gray-400">Indicators: {{ value.indicators|join(', ') }}</div>{% endif %}
+
+        {% elif key == 'media_scan' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total_assets }} media assets found</div>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {% for type, count in value.summary.items() %}
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if type == 'video' %}text-red-400{% elif type == 'audio' %}text-green-400{% elif type == 'document' %}text-blue-400{% elif type == 'image' %}text-purple-400{% else %}text-yellow-400{% endif %}">{{ count }}</div>
+              <div class="text-xs text-gray-400 capitalize">{{ type }}</div>
+            </div>
+            {% endfor %}
+          </div>
+          {% if value.assets %}
+          <details class="mt-3"><summary class="text-blue-400 text-sm cursor-pointer">View asset URLs</summary>
+            <div class="mt-2 grid md:grid-cols-2 gap-2">
+            {% for type, urls in value.assets.items() if urls %}
+              <div class="bg-slate-900/40 rounded p-2"><div class="text-xs font-bold text-gray-300 mb-1 capitalize">{{ type }}</div>
+              {% for u in urls[:5] %}<div class="text-xs text-gray-500 truncate">{{ u }}</div>{% endfor %}</div>
+            {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+
+        {% elif key == 'mobile_detect' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.has_mobile_app %}
+              <span class="badge ok"><i class="fas fa-mobile mr-1"></i>Mobile app detected</span>
+            {% else %}
+              <span class="badge warn">No mobile app found</span>
+            {% endif %}
+            {% if value.smart_banners %}<span class="badge sev-low">Smart banners</span>{% endif %}
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            {% if value.ios %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fab fa-apple mr-2"></i>iOS App</div>
+              <div class="text-xs text-gray-400">App ID: {{ value.ios.app_id }}</div>
+              <a href="https://{{ value.ios.store_url }}" target="_blank" class="text-xs text-blue-400 hover:underline">View on App Store</a>
+            </div>
+            {% endif %}
+            {% if value.android %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fab fa-android mr-2 text-green-400"></i>Android App</div>
+              <div class="text-xs text-gray-400">Package: {{ value.android.package }}</div>
+              <a href="https://{{ value.android.store_url }}" target="_blank" class="text-xs text-blue-400 hover:underline">View on Play Store</a>
+            </div>
+            {% endif %}
+          </div>
+
+        {% elif key == 'email_harvest' %}
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-envelope mr-2 text-blue-400"></i>Email Services</div>
+              {% if value.email_services %}<div class="flex flex-wrap gap-2">{% for s in value.email_services %}<span class="badge ok">{{ s }}</span>{% endfor %}</div>
+              {% else %}<span class="text-gray-500 text-sm">None found</span>{% endif %}
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-link mr-2 text-red-400"></i>Unsubscribe Links</div>
+              {% if value.unsubscribe_links %}<div class="text-xs text-gray-400">{{ value.unsubscribe_links|length }} found</div>
+              {% else %}<span class="text-gray-500 text-sm">None found</span>{% endif %}
+            </div>
+          </div>
+
+        {% elif key == 'brand_extract' %}
+          <div class="text-sm text-gray-400 mb-3">Brand: <span class="text-blue-400 font-bold">{{ value.brand_name or 'Unknown' }}</span> · {{ value.asset_count }} assets found</div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-image mr-2 text-purple-400"></i>Logos</div>
+              {% if value.logos %}<div class="text-xs text-gray-400">{{ value.logos|length }} found</div>{% else %}<span class="text-gray-500 text-sm">None</span>{% endif %}
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-palette mr-2 text-pink-400"></i>Colors</div>
+              <div class="flex flex-wrap gap-1">{% for c in value.colors[:10] %}<div style="background:{{ c }};width:20px;height:20px;border-radius:4px;border:1px solid #444"></div>{% endfor %}</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-font mr-2 text-green-400"></i>Fonts</div>
+              <div class="text-xs text-gray-400">{{ value.fonts[:3]|join(', ') }}</div>
+            </div>
+          </div>
+
+        {% elif key == 'timing_analysis' %}
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-green-400">{{ value.min_ms }}ms</div>
+              <div class="text-xs text-gray-400">Min</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-blue-400">{{ value.avg_ms }}ms</div>
+              <div class="text-xs text-gray-400">Average</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-red-400">{{ value.max_ms }}ms</div>
+              <div class="text-xs text-gray-400">Max</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-yellow-400">{{ value.variance }}ms</div>
+              <div class="text-xs text-gray-400">Variance</div>
+            </div>
+          </div>
+          <div class="text-xs text-gray-400 mt-2">{{ value.samples }} samples · {{ 'Consistent' if value.consistent else 'Variable' }} response times</div>
+
+        {% elif key == 'api_fuzzer' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total_found }} API endpoints discovered</div>
+          <div class="grid md:grid-cols-4 gap-4 mb-3">
+            {% for cat, endpoints in value.categorized.items() %}
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if cat == 'rest' %}text-blue-400{% elif cat == 'graphql' %}text-pink-400{% elif cat == 'websocket' %}text-green-400{% else %}text-gray-400{% endif %}">{{ endpoints|length }}</div>
+              <div class="text-xs text-gray-400 capitalize">{{ cat }}</div>
+            </div>
+            {% endfor %}
+          </div>
+          {% if value.endpoints %}
+          <details><summary class="text-blue-400 text-sm cursor-pointer">View endpoints</summary>
+            <div class="mt-2 text-xs font-mono bg-slate-900/40 rounded p-2 max-h-40 overflow-y-auto">{% for e in value.endpoints[:30] %}<div class="text-gray-400">{{ e }}</div>{% endfor %}</div>
+          </details>
+          {% endif %}
+
+        {% elif key == 'sub_cluster' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total }} subdomains clustered</div>
+          <div class="grid md:grid-cols-4 gap-4">
+            {% for category, subs in value.clusters.items() %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300 capitalize">{{ category }}</span>
+                <span class="badge sev-low">{{ subs|length }}</span>
+              </div>
+              <div class="text-xs text-gray-400 max-h-24 overflow-y-auto">{% for s in subs[:5] %}<div>{{ s }}</div>{% endfor %}</div>
+            </div>
+            {% endfor %}
+          </div>
+
+        {% elif key == 'site_value' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge {% if value.category == 'enterprise' %}ok{% elif value.category == 'business' %}warn{% else %}sev-low{% endif %}">{{ value.category|upper }}</span>
+            <span class="text-sm text-gray-400">Complexity Score: {{ value.complexity_score }}/100</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-blue-400">{{ value.indicators.content_words }}</div>
+              <div class="text-xs text-gray-400">Words</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-green-400">{{ value.indicators.forms }}</div>
+              <div class="text-xs text-gray-400">Forms</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-yellow-400">{{ value.indicators.scripts }}</div>
+              <div class="text-xs text-gray-400">Scripts</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold text-purple-400">{{ value.indicators.social_links|length }}</div>
+              <div class="text-xs text-gray-400">Social Links</div>
+            </div>
+          </div>
+
+        {% elif key == 'cookie_consent' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.has_banner %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>Cookie banner detected</span>
+            {% else %}
+              <span class="badge warn"><i class="fas fa-times mr-1"></i>No cookie banner</span>
+            {% endif %}
+            <span class="text-sm text-gray-400">Compliance Score: {{ value.compliance_score }}%</span>
+          </div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2">Consent Managers</div>
+              {% if value.consent_managers %}<div class="flex flex-wrap gap-1">{% for m in value.consent_managers %}<span class="badge sev-low">{{ m }}</span>{% endfor %}</div>
+              {% else %}<span class="text-gray-500 text-sm">None detected</span>{% endif %}
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if value.reject_option %}text-green-400{% else %}text-red-400{% endif %}">{{ 'Yes' if value.reject_option else 'No' }}</div>
+              <div class="text-xs text-gray-400">Reject Option</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if value.granular_control %}text-green-400{% else %}text-red-400{% endif %}">{{ 'Yes' if value.granular_control else 'No' }}</div>
+              <div class="text-xs text-gray-400">Granular Control</div>
+            </div>
+          </div>
+
+        {% elif key == 'github_dorks' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total_results }} results found from {{ value.query_count }} queries</div>
+          {% if value.results %}
+          <table><thead><tr><th>Repository</th><th>File</th><th>Query</th><th>Link</th></tr></thead>
+          <tbody>{% for r in value.results[:30] %}
+            <tr>
+              <td class="text-sm">{{ r.repo }}</td>
+              <td class="font-mono text-xs truncate max-w-[200px]">{{ r.path }}</td>
+              <td><span class="badge warn">{{ r.query }}</span></td>
+              <td><a href="{{ r.url }}" target="_blank" class="text-blue-400 hover:underline"><i class="fas fa-external-link text-xs"></i></a></td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No sensitive data found in GitHub.</p>{% endif %}
+
+        {% elif key == 'hunter_io' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge ok">{{ value.emails_found }} emails found</span>
+            <span class="text-sm text-gray-400">Domain: {{ value.domain or 'N/A' }}</span>
+          </div>
+          {% if value.emails %}
+          <table><thead><tr><th>Email</th><th>Type</th><th>Confidence</th><th>Sources</th></tr></thead>
+          <tbody>{% for e in value.emails[:20] %}
+            <tr>
+              <td class="font-mono text-sm">{{ e.value }}</td>
+              <td>{{ e.type or 'unknown' }}</td>
+              <td><span class="badge {% if e.confidence > 80 %}ok{% elif e.confidence > 50 %}warn{% else %}sev-low{% endif %}">{{ e.confidence }}%</span></td>
+              <td class="text-xs text-gray-400">{{ e.sources|length if e.sources else 0 }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-gray-400 text-sm">No emails found for this domain.</p>{% endif %}
+
+        {% elif key == 'enhanced_cve' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.total_cves }} CVEs found for detected technologies</div>
+          {% if value.cves %}
+          <table><thead><tr><th>CVE ID</th><th>Technology</th><th>CVSS</th><th>Severity</th><th>Description</th></tr></thead>
+          <tbody>{% for c in value.cves[:30] %}
+            <tr>
+              <td><a href="https://nvd.nist.gov/vuln/detail/{{ c.id }}" target="_blank" class="text-blue-400 hover:underline font-mono text-xs">{{ c.id }}</a></td>
+              <td>{{ c.tech }}</td>
+              <td class="font-bold {% if c.cvss >= 9 %}text-red-500{% elif c.cvss >= 7 %}text-orange-400{% elif c.cvss >= 4 %}text-yellow-400{% else %}text-green-400{% endif %}">{{ c.cvss or 'N/A' }}</td>
+              <td><span class="badge {% if c.severity == 'critical' %}bad{% elif c.severity == 'high' %}sev-high{% elif c.severity == 'medium' %}sev-medium{% else %}sev-low{% endif %}">{{ c.severity }}</span></td>
+              <td class="text-xs text-gray-400 max-w-xs truncate">{{ c.description[:100] }}...</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No known CVEs found for detected technologies.</p>{% endif %}
+
+        {% elif key == 'cert_monitor' %}
+          {% set days = value.get('days_left', value.get('days_until_expiry', 'N/A')) %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.get('expiring_soon') or (days is number and days < 30) %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>Certificate expiring soon!</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>Certificate OK</span>
+            {% endif %}
+            <span class="text-sm text-gray-400">Days until expiry: <span class="font-bold {% if days is number and days < 30 %}text-red-400{% elif days is number and days < 60 %}text-yellow-400{% else %}text-green-400{% endif %}">{{ days }}</span></span>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-certificate mr-2 text-green-400"></i>Certificate Details</div>
+              <div class="text-xs text-gray-400 space-y-1">
+                <div><span class="text-gray-500">Subject:</span> {{ value.get('subject', value.get('common_name', 'N/A')) }}</div>
+                <div><span class="text-gray-500">Issuer:</span> {{ value.get('issuer', 'N/A') }}</div>
+                <div><span class="text-gray-500">Valid From:</span> {{ value.get('not_before', value.get('valid_from', 'N/A')) }}</div>
+                <div><span class="text-gray-500">Valid Until:</span> {{ value.get('not_after', value.get('valid_until', 'N/A')) }}</div>
+              </div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-shield-alt mr-2 text-blue-400"></i>Security</div>
+              <div class="text-xs text-gray-400 space-y-1">
+                <div><span class="text-gray-500">Algorithm:</span> {{ value.get('signature_algorithm', value.get('algorithm', 'N/A')) }}</div>
+                <div><span class="text-gray-500">Key Size:</span> {{ value.get('key_size', value.get('key_bits', 'N/A')) }} bits</div>
+                {% if value.get('san') %}<div><span class="text-gray-500">SAN:</span> {{ value.san[:3]|join(', ') }}{% if value.san|length > 3 %}...{% endif %}</div>{% endif %}
+              </div>
+            </div>
+          </div>
+
+        {% elif key == 'auth_weakness' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.vulnerabilities_found %}
+              <span class="badge bad"><i class="fas fa-unlock mr-1"></i>{{ value.vulnerabilities_found }} issues found</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-lock mr-1"></i>No auth weaknesses</span>
+            {% endif %}
+          </div>
+          {% if value.findings %}
+          <table><thead><tr><th>Issue</th><th>Severity</th><th>Details</th><th>Recommendation</th></tr></thead>
+          <tbody>{% for f in value.findings %}
+            <tr>
+              <td>{{ f.issue }}</td>
+              <td><span class="badge {% if f.severity == 'critical' %}bad{% elif f.severity == 'high' %}sev-high{% elif f.severity == 'medium' %}sev-medium{% else %}sev-low{% endif %}">{{ f.severity }}</span></td>
+              <td class="text-xs text-gray-400">{{ f.details }}</td>
+              <td class="text-xs text-gray-400">{{ f.recommendation }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'api_security' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.issues_found %}
+              <span class="badge bad"><i class="fas fa-bug mr-1"></i>{{ value.issues_found }} API security issues</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>API appears secure</span>
+            {% endif %}
+          </div>
+          {% if value.findings %}
+          <table><thead><tr><th>Endpoint</th><th>Issue</th><th>Severity</th><th>Details</th></tr></thead>
+          <tbody>{% for f in value.findings %}
+            <tr>
+              <td class="font-mono text-xs">{{ f.endpoint }}</td>
+              <td>{{ f.issue }}</td>
+              <td><span class="badge {% if f.severity == 'high' %}bad{% else %}warn{% endif %}">{{ f.severity }}</span></td>
+              <td class="text-xs text-gray-400">{{ f.details }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'xxe_detection' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.vulnerable %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>XXE VULNERABLE</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No XXE detected</span>
+            {% endif %}
+          </div>
+          {% if value.findings %}
+          <table><thead><tr><th>Endpoint</th><th>Method</th><th>Status</th><th>Evidence</th></tr></thead>
+          <tbody>{% for f in value.findings %}
+            <tr>
+              <td class="font-mono text-xs">{{ f.endpoint }}</td>
+              <td>{{ f.method }}</td>
+              <td><span class="badge {% if f.vulnerable %}bad{% else %}ok{% endif %}">{{ 'Vulnerable' if f.vulnerable else 'Safe' }}</span></td>
+              <td class="text-xs text-gray-400">{{ f.evidence }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'ssrf_detection' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.vulnerable %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>SSRF VULNERABLE</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No SSRF detected</span>
+            {% endif %}
+          </div>
+          {% if value.findings %}
+          <table><thead><tr><th>Endpoint</th><th>Parameter</th><th>Status</th><th>Evidence</th></tr></thead>
+          <tbody>{% for f in value.findings %}
+            <tr>
+              <td class="font-mono text-xs">{{ f.endpoint }}</td>
+              <td><span class="badge warn">{{ f.parameter }}</span></td>
+              <td><span class="badge {% if f.vulnerable %}bad{% else %}ok{% endif %}">{{ 'Vulnerable' if f.vulnerable else 'Safe' }}</span></td>
+              <td class="text-xs text-gray-400">{{ f.evidence }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'open_redirect' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.vulnerable %}
+              <span class="badge bad"><i class="fas fa-external-link mr-1"></i>OPEN REDIRECT FOUND</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No open redirects</span>
+            {% endif %}
+          </div>
+          {% if value.findings %}
+          <table><thead><tr><th>URL</th><th>Parameter</th><th>Redirects To</th></tr></thead>
+          <tbody>{% for f in value.findings %}
+            <tr>
+              <td class="font-mono text-xs truncate max-w-xs">{{ f.url }}</td>
+              <td><span class="badge warn">{{ f.parameter }}</span></td>
+              <td class="text-xs text-gray-400">{{ f.redirects_to }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'header_injection' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.vulnerable %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>HEADER INJECTION FOUND</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No header injection</span>
+            {% endif %}
+          </div>
+          {% if value.findings %}
+          <table><thead><tr><th>Endpoint</th><th>Header</th><th>Payload</th><th>Evidence</th></tr></thead>
+          <tbody>{% for f in value.findings %}
+            <tr>
+              <td class="font-mono text-xs">{{ f.endpoint }}</td>
+              <td>{{ f.header }}</td>
+              <td class="font-mono text-xs text-red-400">{{ f.payload }}</td>
+              <td class="text-xs text-gray-400">{{ f.evidence }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'leakcheck' or key.startswith('leakcheck_') %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.found %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>BREACH DETECTED</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No breaches found</span>
+            {% endif %}
+            <span class="text-sm text-gray-400">Email: {{ value.email or 'N/A' }}</span>
+          </div>
+          {% if value.sources %}
+          <table><thead><tr><th>Source</th><th>Date</th><th>Data Types</th></tr></thead>
+          <tbody>{% for s in value.sources %}
+            <tr>
+              <td class="text-red-400">{{ s.name }}</td>
+              <td>{{ s.date or 'Unknown' }}</td>
+              <td class="text-xs text-gray-400">{{ s.data_types|join(', ') if s.data_types else 'Unknown' }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'waf_detect' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.detected %}
+              <span class="badge warn"><i class="fas fa-shield-alt mr-1"></i>WAF Detected: {{ value.waf_name }}</span>
+            {% else %}
+              <span class="badge sev-low"><i class="fas fa-question-circle mr-1"></i>No WAF detected</span>
+            {% endif %}
+          </div>
+          {% if value.indicators %}
+          <div class="text-xs text-gray-400">Indicators: {{ value.indicators|join(', ') }}</div>
+          {% endif %}
+
+        {% elif key == 'port_scan' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.ports_scanned }} ports scanned · {{ value.open_ports|length if value.open_ports else 0 }} open</div>
+          {% if value.open_ports %}
+          <table><thead><tr><th>Port</th><th>Service</th><th>State</th><th>Banner</th></tr></thead>
+          <tbody>{% for p in value.open_ports %}
+            <tr>
+              <td class="font-mono">{{ p.port }}</td>
+              <td>{{ p.service or 'unknown' }}</td>
+              <td><span class="badge {% if p.state == 'open' %}ok{% else %}warn{% endif %}">{{ p.state }}</span></td>
+              <td class="text-xs text-gray-400 truncate max-w-xs">{{ p.banner or 'N/A' }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-gray-400 text-sm">No open ports found.</p>{% endif %}
+
+        {% elif key == 'subdomain_takeover' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.vulnerable_count > 0 %}
+              <span class="badge bad"><i class="fas fa-exclamation-triangle mr-1"></i>{{ value.vulnerable_count }} VULNERABLE</span>
+            {% else %}
+              <span class="badge ok"><i class="fas fa-check mr-1"></i>No takeover risks</span>
+            {% endif %}
+          </div>
+          {% if value.results %}
+          <table><thead><tr><th>Subdomain</th><th>CNAME</th><th>Service</th><th>Status</th></tr></thead>
+          <tbody>{% for r in value.results %}
+            <tr>
+              <td class="font-mono text-sm">{{ r.subdomain }}</td>
+              <td class="font-mono text-xs">{{ r.cname }}</td>
+              <td>{{ r.service or 'Unknown' }}</td>
+              <td><span class="badge {% if r.vulnerable %}bad{% else %}ok{% endif %}">{{ 'Vulnerable' if r.vulnerable else 'Safe' }}</span></td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'email_security' %}
+          <div class="grid md:grid-cols-4 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if value.spf.valid %}text-green-400{% else %}text-red-400{% endif %}">{{ 'Pass' if value.spf.valid else 'Fail' }}</div>
+              <div class="text-xs text-gray-400">SPF</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if value.dkim.found %}text-green-400{% else %}text-yellow-400{% endif %}">{{ 'Pass' if value.dkim.found else 'N/A' }}</div>
+              <div class="text-xs text-gray-400">DKIM</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if value.dmarc.valid %}text-green-400{% else %}text-red-400{% endif %}">{{ 'Pass' if value.dmarc.valid else 'Fail' }}</div>
+              <div class="text-xs text-gray-400">DMARC</div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div class="text-2xl font-bold {% if value.score >= 80 %}text-green-400{% elif value.score >= 50 %}text-yellow-400{% else %}text-red-400{% endif %}">{{ value.score }}%</div>
+              <div class="text-xs text-gray-400">Score</div>
+            </div>
+          </div>
+          {% if value.recommendations %}<div class="text-xs text-gray-400 mt-3">{{ value.recommendations|join(', ') }}</div>{% endif %}
+
+        {% elif key == 'attack_map' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.get('total_assets', 0) }} assets mapped across {{ value.get('categories', {})|length }} categories</div>
+          <div class="grid md:grid-cols-3 gap-4">
+            {% for category, assets in value.get('categories', value.get('assets', {})).items() %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-gray-300 capitalize">{{ category }}</span>
+                <span class="badge sev-low">{{ assets|length if assets is iterable else assets }}</span>
+              </div>
+              {% if assets is iterable and assets is not string %}
+              <div class="text-xs text-gray-400 max-h-24 overflow-y-auto">{% for a in assets[:8] %}<div class="truncate">{{ a }}</div>{% endfor %}{% if assets|length > 8 %}<div class="text-blue-400">+{{ assets|length - 8 }} more</div>{% endif %}</div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% if value.get('risk_areas') %}
+          <div class="mt-4"><div class="text-sm font-medium text-red-400 mb-2"><i class="fas fa-exclamation-triangle mr-2"></i>High Risk Areas</div>
+          <div class="flex flex-wrap gap-2">{% for r in value.risk_areas %}<span class="badge bad">{{ r }}</span>{% endfor %}</div></div>
+          {% endif %}
+
+        {% elif key == 'report_narrative' %}
+          <div class="prose prose-invert max-w-none">
+            {% if value.get('executive_summary') %}
+            <div class="bg-slate-800/40 rounded-lg p-4 mb-4">
+              <h3 class="text-lg font-bold text-blue-400 mb-2"><i class="fas fa-file-alt mr-2"></i>Executive Summary</h3>
+              <p class="text-gray-300 text-sm">{{ value.executive_summary }}</p>
+            </div>
+            {% endif %}
+            {% if value.get('key_findings') %}
+            <div class="bg-slate-800/40 rounded-lg p-4 mb-4">
+              <h3 class="text-lg font-bold text-yellow-400 mb-2"><i class="fas fa-search mr-2"></i>Key Findings</h3>
+              <ul class="list-disc pl-5 text-sm text-gray-300 space-y-1">{% for finding in value.key_findings %}<li>{{ finding }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+            {% if value.get('recommendations') %}
+            <div class="bg-slate-800/40 rounded-lg p-4">
+              <h3 class="text-lg font-bold text-green-400 mb-2"><i class="fas fa-clipboard-check mr-2"></i>Recommendations</h3>
+              <ul class="list-disc pl-5 text-sm text-gray-300 space-y-1">{% for rec in value.recommendations %}<li>{{ rec }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+          </div>
+
+        {% elif key == 'scan_diff' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge {% if value.get('changes_detected') %}warn{% else %}ok{% endif %}">{{ value.get('total_changes', 0) }} changes detected</span>
+            <span class="text-sm text-gray-400">Compared with previous scan</span>
+          </div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <div class="bg-green-900/20 rounded-lg p-3 border border-green-500/30">
+              <div class="text-sm font-medium text-green-400 mb-2"><i class="fas fa-plus mr-2"></i>Added ({{ value.get('added', [])|length }})</div>
+              <div class="text-xs text-gray-400 max-h-32 overflow-y-auto">{% for a in value.get('added', [])[:10] %}<div class="truncate">{{ a }}</div>{% endfor %}</div>
+            </div>
+            <div class="bg-red-900/20 rounded-lg p-3 border border-red-500/30">
+              <div class="text-sm font-medium text-red-400 mb-2"><i class="fas fa-minus mr-2"></i>Removed ({{ value.get('removed', [])|length }})</div>
+              <div class="text-xs text-gray-400 max-h-32 overflow-y-auto">{% for r in value.get('removed', [])[:10] %}<div class="truncate">{{ r }}</div>{% endfor %}</div>
+            </div>
+            <div class="bg-yellow-900/20 rounded-lg p-3 border border-yellow-500/30">
+              <div class="text-sm font-medium text-yellow-400 mb-2"><i class="fas fa-exchange-alt mr-2"></i>Changed ({{ value.get('changed', [])|length }})</div>
+              <div class="text-xs text-gray-400 max-h-32 overflow-y-auto">{% for c in value.get('changed', [])[:10] %}<div class="truncate">{{ c }}</div>{% endfor %}</div>
+            </div>
+          </div>
+
+        {% elif key == 'delta_alerts' %}
+          <div class="flex items-center gap-3 mb-3">
+            <span class="badge {% if value.get('alerts') %}bad{% else %}ok{% endif %}">{{ value.get('alerts', [])|length }} alerts</span>
+          </div>
+          {% if value.get('alerts') %}
+          <table><thead><tr><th>Alert</th><th>Severity</th><th>Details</th><th>Time</th></tr></thead>
+          <tbody>{% for a in value.alerts %}
+            <tr>
+              <td>{{ a.get('type', 'Unknown') }}</td>
+              <td><span class="badge {% if a.get('severity') == 'critical' %}bad{% elif a.get('severity') == 'high' %}sev-high{% else %}warn{% endif %}">{{ a.get('severity', 'medium') }}</span></td>
+              <td class="text-xs text-gray-400">{{ a.get('details', '') }}</td>
+              <td class="text-xs text-gray-500">{{ a.get('timestamp', '') }}</td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No significant changes detected since last scan.</p>{% endif %}
+
+        {% elif key == 'entropy_scan' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.get('total_secrets', 0) }} high-entropy strings detected</div>
+          {% if value.get('secrets') %}
+          <table><thead><tr><th>Type</th><th>Value</th><th>Entropy</th><th>Severity</th></tr></thead>
+          <tbody>{% for s in value.secrets[:20] %}
+            <tr>
+              <td>{{ s.get('type', 'Unknown') }}</td>
+              <td class="font-mono text-xs truncate max-w-xs">{{ s.get('value', '')[:40] }}...</td>
+              <td>{{ s.get('entropy', 0)|round(2) }}</td>
+              <td><span class="badge {% if s.get('severity') == 'critical' %}bad{% else %}warn{% endif %}">{{ s.get('severity', 'medium') }}</span></td>
+            </tr>
+          {% endfor %}</tbody></table>
+          {% else %}<p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No secrets detected via entropy analysis.</p>{% endif %}
+
+        {% elif key == 'wordlist_gen' %}
+          <div class="text-sm text-gray-400 mb-3">{{ value.get('total_words', 0) }} words generated for bruteforce/fuzzing</div>
+          <div class="grid md:grid-cols-4 gap-4">
+            {% for category, words in value.get('categories', {}).items() %}
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 capitalize mb-2">{{ category }}</div>
+              <div class="text-xs text-gray-400 max-h-32 overflow-y-auto font-mono">{% for w in words[:15] %}<div>{{ w }}</div>{% endfor %}</div>
+            </div>
+            {% endfor %}
+          </div>
+          {% if value.get('wordlist') %}
+          <details class="mt-3"><summary class="text-blue-400 text-sm cursor-pointer">View full wordlist ({{ value.wordlist|length }} words)</summary>
+            <pre class="bg-slate-900/60 rounded p-3 text-xs mt-2 max-h-48 overflow-y-auto">{{ value.wordlist[:100]|join('\n') }}</pre>
+          </details>
+          {% endif %}
+
+        {% elif key == 'password_policy' %}
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-lock mr-2 text-blue-400"></i>Detected Policy</div>
+              <div class="space-y-2">
+                <div class="flex justify-between text-xs"><span class="text-gray-400">Min Length:</span><span class="font-bold">{{ value.get('min_length', '?') }}</span></div>
+                <div class="flex justify-between text-xs"><span class="text-gray-400">Requires Uppercase:</span><span class="font-bold {% if value.get('requires_uppercase') %}text-green-400{% else %}text-red-400{% endif %}">{{ 'Yes' if value.get('requires_uppercase') else 'No' }}</span></div>
+                <div class="flex justify-between text-xs"><span class="text-gray-400">Requires Numbers:</span><span class="font-bold {% if value.get('requires_numbers') %}text-green-400{% else %}text-red-400{% endif %}">{{ 'Yes' if value.get('requires_numbers') else 'No' }}</span></div>
+                <div class="flex justify-between text-xs"><span class="text-gray-400">Requires Special:</span><span class="font-bold {% if value.get('requires_special') %}text-green-400{% else %}text-red-400{% endif %}">{{ 'Yes' if value.get('requires_special') else 'No' }}</span></div>
+              </div>
+            </div>
+            <div class="bg-slate-800/40 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-300 mb-2"><i class="fas fa-shield-alt mr-2 text-green-400"></i>Strength Analysis</div>
+              <div class="text-2xl font-bold text-center {% if value.get('strength_score', 0) >= 80 %}text-green-400{% elif value.get('strength_score', 0) >= 50 %}text-yellow-400{% else %}text-red-400{% endif %}">{{ value.get('strength_score', 0) }}%</div>
+              <div class="text-xs text-gray-400 text-center">{{ value.get('strength_label', 'Unknown') }}</div>
+            </div>
+          </div>
+
+        {% elif key == 'tech_timeline' %}
+          <div class="text-sm text-gray-400 mb-3">Technology evolution over {{ value.get('snapshots', [])|length }} snapshots</div>
+          {% if value.get('snapshots') %}
+          <div class="relative">
+            <div class="absolute left-4 top-0 bottom-0 w-0.5 bg-blue-500/30"></div>
+            <div class="space-y-4 pl-10">
+              {% for snapshot in value.snapshots[:10] %}
+              <div class="relative">
+                <div class="absolute -left-10 w-4 h-4 rounded-full bg-blue-500 border-2 border-slate-800"></div>
+                <div class="bg-slate-800/40 rounded-lg p-3">
+                  <div class="text-xs text-blue-400 mb-1">{{ snapshot.get('date', 'Unknown') }}</div>
+                  <div class="flex flex-wrap gap-1">{% for tech in snapshot.get('technologies', [])[:8] %}<span class="badge sev-low">{{ tech }}</span>{% endfor %}</div>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}<p class="text-gray-400 text-sm">No historical snapshots available.</p>{% endif %}
+
         {% else %}
-          <p class="text-gray-400 text-sm">No structured data available.</p>
+          {# Generic JSON fallback for unrendered modules #}
+          <details open><summary class="text-blue-400 text-sm cursor-pointer">View data</summary>
+            <pre class="bg-slate-900/60 rounded p-3 text-xs mt-2 overflow-x-auto max-h-96">{{ value | tojson(indent=2) }}</pre>
+          </details>
         {% endif %}
       </div>
       {% endfor %}
@@ -1994,6 +3270,84 @@ RESULTS_HTML = r"""
     const btnCollapseAll = document.getElementById('btnCollapseAll');
     if (btnExpandAll) btnExpandAll.addEventListener('click', () => document.querySelectorAll('details').forEach(d => d.open = true));
     if (btnCollapseAll) btnCollapseAll.addEventListener('click', () => document.querySelectorAll('details').forEach(d => d.open = false));
+  </script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      Chart.defaults.color = '#9ca3af';
+      Chart.defaults.borderColor = 'rgba(75, 85, 99, 0.1)';
+
+      // Risk Chart
+      const ctxRisk = document.getElementById('riskChart').getContext('2d');
+      new Chart(ctxRisk, {
+        type: 'doughnut',
+        data: {
+          labels: ['Critical', 'High', 'Medium', 'Low'],
+          datasets: [{
+            data: [
+              {{ results.get('cve_alerts', {}).get('rows', [])|length }} + {{ results.get('social_intel', {}).get('profiles', [])|length }}, 
+              {{ results.get('_summary', {}).get('vt_malicious', 0) }} + {{ results.get('ransomware_check', {}).get('groups', [])|length }},
+              {{ results.get('_summary', {}).get('missing_sec_headers', 0) }},
+              {{ results.get('_summary', {}).get('subdomains', 0) }}
+            ],
+            backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#3b82f6'],
+            borderWidth: 0,
+            hoverOffset: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right', labels: { font: { family: 'Inter' }, usePointStyle: true } },
+            title: { display: true, text: 'Findings Distribution', color: '#e5e7eb', font: { size: 14 } }
+          },
+          cutout: '70%'
+        }
+      });
+
+      // Coverage Chart
+      const ctxCov = document.getElementById('coverageChart').getContext('2d');
+      new Chart(ctxCov, {
+        type: 'radar',
+        data: {
+          labels: ['Recon', 'Network', 'Web Sec', 'Threat Intel', 'Compliance', 'SOCMINT'],
+          datasets: [{
+            label: 'Assessment Depth',
+            data: [
+              {{ 90 if results.get('subdomain_scan') else 20 }},
+              {{ 85 if results.get('port_scan') or results.get('dns') else 20 }},
+              {{ 95 if results.get('headers') or results.get('sec_headers') else 10 }},
+              {{ 80 if results.get('virustotal') or results.get('abuseipdb') else 0 }},
+              {{ 75 if results.get('privacy_detect') or results.get('gdpr') else 0 }},
+              {{ 85 if results.get('social_intel') or results.get('social_extract') else 0 }}
+            ],
+            borderColor: '#8b5cf6',
+            backgroundColor: 'rgba(139, 92, 246, 0.2)',
+            pointBackgroundColor: '#8b5cf6',
+            pointBorderColor: '#fff',
+            pointHoverBackgroundColor: '#fff',
+            pointHoverBorderColor: '#8b5cf6'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            r: {
+              angleLines: { color: 'rgba(75, 85, 99, 0.2)' },
+              grid: { color: 'rgba(75, 85, 99, 0.2)' },
+              pointLabels: { color: '#9ca3af', font: { size: 11 } },
+              ticks: { display: false, backdropColor: 'transparent' }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            title: { display: true, text: 'Security Coverage Map', color: '#e5e7eb', font: { size: 14 } }
+          }
+        }
+      });
+    });
   </script>
 </body>
 </html>
@@ -2404,6 +3758,1225 @@ def parse_multiline_values(raw: str):
             values.append(val)
     return values
 
+# ================================================================================
+#                          PHASE 2: AI-POWERED THREAT ANALYSIS
+# ================================================================================
+
+class AIThreatAnalyzer:
+    """AI-powered threat analysis engine for intelligent risk assessment."""
+    
+    def __init__(self):
+        self.client = None
+        if OPENAI_API_KEY and OPENAI_AVAILABLE:
+            openai.api_key = OPENAI_API_KEY
+            self.client = "openai"
+        elif ANTHROPIC_API_KEY and ANTHROPIC_AVAILABLE:
+            self.client = "anthropic"
+    
+    def generate_executive_summary(self, results: dict) -> str:
+        """Generate an AI-powered executive summary of scan results."""
+        if not AI_ENABLED or not self.client:
+            return self._fallback_summary(results)
+        
+        summary = results.get("_summary", {})
+        findings_text = self._extract_key_findings(results)
+        
+        prompt = f"""Analyze these security scan results and provide a concise executive summary (3-4 sentences):
+
+Risk Score: {summary.get('risk_score', 0)}/100
+Risk Level: {summary.get('risk_level', 'unknown')}
+Key Findings:
+{findings_text}
+
+Focus on: business impact, critical vulnerabilities, and recommended immediate actions."""
+
+        try:
+            if self.client == "openai":
+                response = openai.chat.completions.create(
+                    model=AI_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=300,
+                    temperature=0.3
+                )
+                return response.choices[0].message.content
+            elif self.client == "anthropic":
+                client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+                response = client.messages.create(
+                    model="claude-3-sonnet-20240229",
+                    max_tokens=300,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.content[0].text
+        except Exception as e:
+            logger.warning(f"AI summary generation failed: {e}")
+            return self._fallback_summary(results)
+        
+        return self._fallback_summary(results)
+    
+    def _fallback_summary(self, results: dict) -> str:
+        """Generate a rule-based summary when AI is unavailable."""
+        summary = results.get("_summary", {})
+        risk_level = summary.get("risk_level", "unknown")
+        risk_score = summary.get("risk_score", 0)
+        
+        if risk_level == "critical":
+            severity = "Critical security issues detected requiring immediate attention."
+        elif risk_level == "high":
+            severity = "High-risk vulnerabilities found that should be prioritized."
+        elif risk_level == "medium":
+            severity = "Moderate security concerns identified for review."
+        else:
+            severity = "No significant security issues detected."
+        
+        return f"{severity} Overall risk score: {risk_score}/100."
+    
+    def _extract_key_findings(self, results: dict) -> str:
+        """Extract key findings from scan results for AI context."""
+        findings = []
+        
+        if results.get("ssl_tls", {}).get("grade"):
+            findings.append(f"- SSL/TLS Grade: {results['ssl_tls']['grade']}")
+        
+        if results.get("sec_headers", {}).get("rows"):
+            missing = sum(1 for r in results["sec_headers"]["rows"] if r.get("status") != "OK")
+            findings.append(f"- Missing Security Headers: {missing}")
+        
+        if results.get("virustotal", {}).get("data"):
+            stats = results["virustotal"]["data"].get("attributes", {}).get("last_analysis_stats", {})
+            findings.append(f"- VirusTotal Malicious: {stats.get('malicious', 0)}")
+        
+        if results.get("js_secrets", {}).get("secrets_found"):
+            findings.append(f"- Exposed Secrets: {len(results['js_secrets']['secrets_found'])}")
+        
+        if results.get("subdomain_takeover", {}).get("vulnerable"):
+            findings.append(f"- Subdomain Takeover Risks: {len(results['subdomain_takeover']['vulnerable'])}")
+        
+        if results.get("cors", {}).get("vulnerable"):
+            findings.append("- CORS Misconfiguration Detected")
+        
+        return "\n".join(findings) if findings else "No critical findings."
+    
+    def smart_risk_scoring(self, results: dict) -> dict:
+        """ML-enhanced risk scoring with context awareness."""
+        base_score = results.get("_summary", {}).get("risk_score", 0)
+        
+        # Weighted factors based on real-world impact
+        weights = {
+            "exposed_secrets": 25,
+            "subdomain_takeover": 20,
+            "cors_vulnerable": 15,
+            "weak_tls": 15,
+            "missing_headers": 5,
+            "open_risky_ports": 10,
+            "vt_malicious": 20,
+            "hibp_breaches": 10,
+        }
+        
+        adjusted_score = base_score
+        factors = []
+        
+        # Check each weighted factor
+        if results.get("js_secrets", {}).get("secrets_found"):
+            count = len(results["js_secrets"]["secrets_found"])
+            adjusted_score += weights["exposed_secrets"] * min(count, 3)
+            factors.append(f"+{weights['exposed_secrets'] * min(count, 3)} (exposed secrets)")
+        
+        if results.get("subdomain_takeover", {}).get("vulnerable"):
+            count = len(results["subdomain_takeover"]["vulnerable"])
+            adjusted_score += weights["subdomain_takeover"] * count
+            factors.append(f"+{weights['subdomain_takeover'] * count} (subdomain takeover)")
+        
+        if results.get("cors", {}).get("vulnerable"):
+            adjusted_score += weights["cors_vulnerable"]
+            factors.append(f"+{weights['cors_vulnerable']} (CORS misconfiguration)")
+        
+        if results.get("ssl_tls", {}).get("grade") in ["D", "F"]:
+            adjusted_score += weights["weak_tls"]
+            factors.append(f"+{weights['weak_tls']} (weak TLS)")
+        
+        # Normalize to 0-100
+        adjusted_score = min(100, max(0, adjusted_score))
+        
+        # Determine severity level
+        if adjusted_score >= 80:
+            level = "critical"
+        elif adjusted_score >= 60:
+            level = "high"
+        elif adjusted_score >= 40:
+            level = "medium"
+        else:
+            level = "low"
+        
+        return {
+            "score": adjusted_score,
+            "level": level,
+            "factors": factors,
+            "confidence": "high" if len(factors) > 2 else "medium"
+        }
+    
+    def generate_remediation_advice(self, finding_type: str, details: dict) -> str:
+        """Generate AI-powered remediation recommendations."""
+        remediation_db = {
+            "missing_csp": "Implement Content-Security-Policy header with strict directives. Start with 'default-src self' and gradually allow trusted sources.",
+            "weak_tls": "Upgrade to TLS 1.3 or TLS 1.2 with strong cipher suites. Disable SSLv3, TLS 1.0, and TLS 1.1.",
+            "cors_vulnerable": "Restrict Access-Control-Allow-Origin to specific trusted domains. Never use wildcard (*) with credentials.",
+            "exposed_secrets": "Immediately rotate all exposed credentials. Use environment variables or secret management systems.",
+            "subdomain_takeover": "Remove dangling DNS records or claim the external service. Regularly audit DNS CNAME records.",
+            "missing_hsts": "Add Strict-Transport-Security header with max-age of at least 31536000 and includeSubDomains.",
+        }
+        return remediation_db.get(finding_type, "Consult security documentation for remediation guidance.")
+
+
+# Initialize global AI analyzer
+ai_analyzer = AIThreatAnalyzer()
+
+
+# ================================================================================
+#                     PHASE 3: VULNERABILITY CORRELATION ENGINE
+# ================================================================================
+
+class VulnerabilityCorrelator:
+    """Advanced vulnerability correlation with CVE, EPSS, and KEV integration."""
+    
+    NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    EPSS_API_URL = "https://api.first.org/data/v1/epss"
+    KEV_JSON_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    EXPLOITDB_API_URL = "https://www.exploit-db.com/search"
+    
+    def __init__(self):
+        self.kev_cache = {}
+        self.kev_last_fetch = None
+    
+    def cve_deep_match(self, tech_stack: list, version_hints: dict = None) -> list:
+        """Deep CVE matching with version-aware lookup."""
+        cves = []
+        version_hints = version_hints or {}
+        
+        # Technology to CPE mapping
+        tech_cpe_map = {
+            "apache": "cpe:2.3:a:apache:http_server",
+            "nginx": "cpe:2.3:a:nginx:nginx",
+            "wordpress": "cpe:2.3:a:wordpress:wordpress",
+            "django": "cpe:2.3:a:djangoproject:django",
+            "react": "cpe:2.3:a:facebook:react",
+            "jquery": "cpe:2.3:a:jquery:jquery",
+            "php": "cpe:2.3:a:php:php",
+            "nodejs": "cpe:2.3:a:nodejs:node.js",
+            "express": "cpe:2.3:a:expressjs:express",
+            "tomcat": "cpe:2.3:a:apache:tomcat",
+            "iis": "cpe:2.3:a:microsoft:iis",
+        }
+        
+        for tech in tech_stack:
+            tech_lower = tech.lower()
+            for key, cpe in tech_cpe_map.items():
+                if key in tech_lower:
+                    try:
+                        params = {"cpeName": cpe, "resultsPerPage": 5}
+                        resp = SESSION.get(self.NVD_API_URL, params=params, timeout=15)
+                        if resp.ok:
+                            data = resp.json()
+                            for vuln in data.get("vulnerabilities", [])[:5]:
+                                cve_data = vuln.get("cve", {})
+                                cve_id = cve_data.get("id", "")
+                                
+                                # Get CVSS score
+                                cvss = None
+                                metrics = cve_data.get("metrics", {})
+                                if metrics.get("cvssMetricV31"):
+                                    cvss = metrics["cvssMetricV31"][0].get("cvssData", {}).get("baseScore")
+                                elif metrics.get("cvssMetricV2"):
+                                    cvss = metrics["cvssMetricV2"][0].get("cvssData", {}).get("baseScore")
+                                
+                                desc = ""
+                                for d in cve_data.get("descriptions", []):
+                                    if d.get("lang") == "en":
+                                        desc = d.get("value", "")[:200]
+                                        break
+                                
+                                cves.append({
+                                    "id": cve_id,
+                                    "technology": tech,
+                                    "cvss": cvss,
+                                    "description": desc,
+                                    "severity": self._cvss_to_severity(cvss)
+                                })
+                    except Exception as e:
+                        logger.debug(f"CVE lookup failed for {tech}: {e}")
+                    break
+        
+        return cves
+    
+    def _cvss_to_severity(self, cvss: float) -> str:
+        """Convert CVSS score to severity label."""
+        if cvss is None:
+            return "unknown"
+        if cvss >= 9.0:
+            return "critical"
+        elif cvss >= 7.0:
+            return "high"
+        elif cvss >= 4.0:
+            return "medium"
+        else:
+            return "low"
+    
+    def epss_scoring(self, cve_ids: list) -> dict:
+        """Get EPSS (Exploit Prediction Scoring System) scores for CVEs."""
+        if not cve_ids:
+            return {"scores": [], "error": None}
+        
+        try:
+            params = {"cve": ",".join(cve_ids[:50])}  # API limit
+            resp = SESSION.get(self.EPSS_API_URL, params=params, timeout=15)
+            if resp.ok:
+                data = resp.json()
+                scores = []
+                for item in data.get("data", []):
+                    scores.append({
+                        "cve": item.get("cve"),
+                        "epss": float(item.get("epss", 0)),
+                        "percentile": float(item.get("percentile", 0)),
+                        "date": item.get("date")
+                    })
+                return {"scores": scores, "error": None}
+            return {"scores": [], "error": f"API returned {resp.status_code}"}
+        except Exception as e:
+            return {"scores": [], "error": str(e)}
+    
+    def kev_cross_reference(self, cve_ids: list) -> dict:
+        """Check CVEs against CISA Known Exploited Vulnerabilities catalog."""
+        # Cache KEV data for 1 hour
+        now = datetime.now()
+        if not self.kev_cache or not self.kev_last_fetch or (now - self.kev_last_fetch).seconds > 3600:
+            try:
+                resp = SESSION.get(self.KEV_JSON_URL, timeout=15)
+                if resp.ok:
+                    kev_data = resp.json()
+                    self.kev_cache = {v["cveID"]: v for v in kev_data.get("vulnerabilities", [])}
+                    self.kev_last_fetch = now
+            except Exception as e:
+                logger.warning(f"KEV fetch failed: {e}")
+        
+        kev_matches = []
+        for cve_id in cve_ids:
+            if cve_id in self.kev_cache:
+                kev = self.kev_cache[cve_id]
+                kev_matches.append({
+                    "cve": cve_id,
+                    "vendor": kev.get("vendorProject"),
+                    "product": kev.get("product"),
+                    "vulnerability_name": kev.get("vulnerabilityName"),
+                    "date_added": kev.get("dateAdded"),
+                    "due_date": kev.get("dueDate"),
+                    "known_ransomware": kev.get("knownRansomwareCampaignUse", "Unknown")
+                })
+        
+        return {
+            "matches": kev_matches,
+            "total_checked": len(cve_ids),
+            "kev_count": len(kev_matches),
+            "in_kev": len(kev_matches) > 0
+        }
+    
+    def vulnerability_prioritization(self, vulns: list) -> list:
+        """Prioritize vulnerabilities based on EPSS, KEV, and CVSS."""
+        prioritized = []
+        
+        cve_ids = [v.get("id") for v in vulns if v.get("id")]
+        epss_data = self.epss_scoring(cve_ids)
+        kev_data = self.kev_cross_reference(cve_ids)
+        
+        # Create lookup tables
+        epss_lookup = {s["cve"]: s for s in epss_data.get("scores", [])}
+        kev_lookup = {m["cve"]: m for m in kev_data.get("matches", [])}
+        
+        for vuln in vulns:
+            cve_id = vuln.get("id", "")
+            cvss = vuln.get("cvss", 0) or 0
+            
+            # Calculate priority score
+            priority_score = cvss * 10  # Base score
+            
+            # EPSS boost
+            if cve_id in epss_lookup:
+                epss = epss_lookup[cve_id].get("epss", 0)
+                priority_score += epss * 30  # High EPSS = high priority
+                vuln["epss"] = epss
+                vuln["epss_percentile"] = epss_lookup[cve_id].get("percentile")
+            
+            # KEV boost (critical)
+            if cve_id in kev_lookup:
+                priority_score += 50  # KEV = immediate attention
+                vuln["in_kev"] = True
+                vuln["kev_details"] = kev_lookup[cve_id]
+            else:
+                vuln["in_kev"] = False
+            
+            vuln["priority_score"] = round(priority_score, 2)
+            prioritized.append(vuln)
+        
+        # Sort by priority score descending
+        prioritized.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
+        
+        return prioritized
+
+
+# Initialize global vulnerability correlator
+vuln_correlator = VulnerabilityCorrelator()
+
+
+def enhanced_cve_lookup(tech_stack: list) -> dict:
+    """Enhanced CVE lookup with EPSS and KEV correlation."""
+    cves = vuln_correlator.cve_deep_match(tech_stack)
+    if cves:
+        cves = vuln_correlator.vulnerability_prioritization(cves)
+    
+    kev_count = sum(1 for c in cves if c.get("in_kev"))
+    high_epss = sum(1 for c in cves if c.get("epss", 0) > 0.1)
+    
+    return {
+        "vulnerabilities": cves,
+        "total": len(cves),
+        "kev_count": kev_count,
+        "high_epss_count": high_epss,
+        "critical_count": sum(1 for c in cves if c.get("severity") == "critical")
+    }
+
+
+# ================================================================================
+#                        PHASE 4: EXTENDED OSINT MODULES
+# ================================================================================
+
+def hunter_io_lookup(domain: str) -> dict:
+    """Email enumeration via Hunter.io API."""
+    if not HUNTER_API_KEY:
+        return {"error": "HUNTER_API_KEY not configured"}
+    
+    try:
+        resp = SESSION.get(
+            "https://api.hunter.io/v2/domain-search",
+            params={"domain": domain, "api_key": HUNTER_API_KEY},
+            timeout=15
+        )
+        if resp.ok:
+            data = resp.json().get("data", {})
+            return {
+                "domain": domain,
+                "organization": data.get("organization"),
+                "emails_found": len(data.get("emails", [])),
+                "emails": [
+                    {
+                        "email": e.get("value"),
+                        "type": e.get("type"),
+                        "confidence": e.get("confidence"),
+                        "position": e.get("position"),
+                        "department": e.get("department")
+                    }
+                    for e in data.get("emails", [])[:20]
+                ],
+                "pattern": data.get("pattern"),
+                "disposable": data.get("disposable")
+            }
+        return {"error": f"API returned {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def censys_search(domain: str) -> dict:
+    """Asset discovery via Censys Search API."""
+    if not CENSYS_API_ID or not CENSYS_API_SECRET:
+        return {"error": "CENSYS_API_ID and CENSYS_API_SECRET not configured"}
+    
+    if not CENSYS_AVAILABLE:
+        return {"error": "censys library not installed"}
+    
+    try:
+        h = CensysHosts(api_id=CENSYS_API_ID, api_secret=CENSYS_API_SECRET)
+        query = f"services.tls.certificates.leaf_data.names: {domain}"
+        results = []
+        
+        for page in h.search(query, per_page=25, pages=1):
+            for host in page:
+                results.append({
+                    "ip": host.get("ip"),
+                    "services": [
+                        {"port": s.get("port"), "service_name": s.get("service_name")}
+                        for s in host.get("services", [])[:5]
+                    ],
+                    "location": host.get("location", {}).get("country"),
+                    "autonomous_system": host.get("autonomous_system", {}).get("name")
+                })
+        
+        return {
+            "domain": domain,
+            "hosts_found": len(results),
+            "hosts": results[:20]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def leakcheck_lookup(email: str) -> dict:
+    """Credential leak checking via LeakCheck API."""
+    if not LEAKCHECK_API_KEY:
+        return {"error": "LEAKCHECK_API_KEY not configured"}
+    
+    try:
+        resp = SESSION.get(
+            f"https://leakcheck.io/api/public",
+            params={"key": LEAKCHECK_API_KEY, "check": email, "type": "email"},
+            timeout=15
+        )
+        if resp.ok:
+            data = resp.json()
+            if data.get("success"):
+                return {
+                    "email": email,
+                    "found": data.get("found", 0),
+                    "sources": data.get("sources", [])[:10],
+                    "fields": data.get("fields", [])
+                }
+            return {"email": email, "found": 0, "sources": []}
+        return {"error": f"API returned {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def github_dork_search(domain: str) -> dict:
+    """Search GitHub for exposed secrets/configs related to domain."""
+    dorks = [
+        f'"{domain}" password',
+        f'"{domain}" api_key',
+        f'"{domain}" secret',
+        f'"{domain}" AWS_SECRET',
+        f'"{domain}" BEGIN RSA PRIVATE KEY',
+        f'filename:.env "{domain}"',
+        f'filename:config "{domain}"',
+    ]
+    
+    results = []
+    headers = {"Accept": "application/vnd.github+json"}
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    
+    for dork in dorks[:3]:  # Limit to avoid rate limits
+        try:
+            resp = SESSION.get(
+                "https://api.github.com/search/code",
+                params={"q": dork, "per_page": 5},
+                headers=headers,
+                timeout=15
+            )
+            if resp.ok:
+                data = resp.json()
+                for item in data.get("items", [])[:3]:
+                    results.append({
+                        "dork": dork,
+                        "repository": item.get("repository", {}).get("full_name"),
+                        "path": item.get("path"),
+                        "url": item.get("html_url"),
+                        "score": item.get("score")
+                    })
+            time.sleep(1)  # Rate limit
+        except Exception as e:
+            logger.debug(f"GitHub dork failed: {e}")
+    
+    return {
+        "domain": domain,
+        "dorks_searched": len(dorks),
+        "findings": results,
+        "potential_leaks": len(results)
+    }
+
+
+def fullhunt_lookup(domain: str) -> dict:
+    """Attack surface discovery via FullHunt API."""
+    if not FULLHUNT_API_KEY:
+        return {"error": "FULLHUNT_API_KEY not configured"}
+    
+    try:
+        resp = SESSION.get(
+            f"https://fullhunt.io/api/v1/domain/{domain}/subdomains",
+            headers={"X-API-KEY": FULLHUNT_API_KEY},
+            timeout=15
+        )
+        if resp.ok:
+            data = resp.json()
+            return {
+                "domain": domain,
+                "subdomains": data.get("subdomains", [])[:50],
+                "total": data.get("subdomain_count", 0)
+            }
+        return {"error": f"API returned {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def binaryedge_lookup(domain: str) -> dict:
+    """Host intelligence via BinaryEdge API."""
+    if not BINARYEDGE_API_KEY:
+        return {"error": "BINARYEDGE_API_KEY not configured"}
+    
+    try:
+        resp = SESSION.get(
+            f"https://api.binaryedge.io/v2/query/domains/subdomain/{domain}",
+            headers={"X-Key": BINARYEDGE_API_KEY},
+            timeout=15
+        )
+        if resp.ok:
+            data = resp.json()
+            return {
+                "domain": domain,
+                "subdomains": data.get("events", [])[:50],
+                "total": data.get("total", 0)
+            }
+        return {"error": f"API returned {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def builtwith_lookup(domain: str) -> dict:
+    """Technology profiling via BuiltWith API."""
+    if not BUILTWITH_API_KEY:
+        return {"error": "BUILTWITH_API_KEY not configured"}
+    
+    try:
+        resp = SESSION.get(
+            "https://api.builtwith.com/free1/api.json",
+            params={"KEY": BUILTWITH_API_KEY, "LOOKUP": domain},
+            timeout=15
+        )
+        if resp.ok:
+            data = resp.json()
+            groups = data.get("groups", [])
+            technologies = []
+            for group in groups:
+                for cat in group.get("categories", []):
+                    technologies.extend([
+                        {"name": t.get("name"), "category": cat.get("name")}
+                        for t in cat.get("live", [])
+                    ])
+            return {
+                "domain": domain,
+                "technologies": technologies[:30],
+                "total": len(technologies)
+            }
+        return {"error": f"API returned {resp.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ================================================================================
+#                      PHASE 5: ACTIVE SECURITY TESTING SUITE
+# ================================================================================
+
+def auth_weakness_scan(url: str) -> dict:
+    """Test for authentication weaknesses (authorized testing only)."""
+    findings = []
+    
+    # Common authentication endpoints
+    auth_endpoints = [
+        "/login", "/signin", "/auth", "/authenticate",
+        "/admin/login", "/api/login", "/api/auth",
+        "/user/login", "/account/login"
+    ]
+    
+    for endpoint in auth_endpoints:
+        target = urljoin(url, endpoint)
+        try:
+            # Check if endpoint exists
+            resp = SESSION.get(target, timeout=10, allow_redirects=False)
+            if resp.status_code in [200, 301, 302, 401, 403]:
+                finding = {
+                    "endpoint": endpoint,
+                    "status": resp.status_code,
+                    "issues": []
+                }
+                
+                # Check for missing security headers on login
+                if "X-Frame-Options" not in resp.headers:
+                    finding["issues"].append("Clickjacking possible (no X-Frame-Options)")
+                
+                # Check for rate limiting headers
+                if "X-RateLimit-Limit" not in resp.headers and "RateLimit" not in str(resp.headers):
+                    finding["issues"].append("No rate limiting detected")
+                
+                # Check for password field autocomplete
+                if resp.status_code == 200 and "autocomplete" in resp.text.lower():
+                    if 'autocomplete="off"' not in resp.text.lower() and 'autocomplete="new-password"' not in resp.text.lower():
+                        finding["issues"].append("Password autocomplete may be enabled")
+                
+                if finding["issues"]:
+                    findings.append(finding)
+        except Exception:
+            pass
+    
+    return {
+        "endpoints_checked": len(auth_endpoints),
+        "findings": findings,
+        "issues_found": sum(len(f.get("issues", [])) for f in findings)
+    }
+
+
+def api_security_scan(url: str) -> dict:
+    """API security testing including GraphQL introspection."""
+    results = {"rest_api": [], "graphql": None, "issues": []}
+    
+    # Common API endpoints
+    api_endpoints = [
+        "/api", "/api/v1", "/api/v2",
+        "/rest", "/v1", "/v2",
+        "/swagger.json", "/openapi.json",
+        "/api-docs", "/swagger-ui.html"
+    ]
+    
+    for endpoint in api_endpoints:
+        target = urljoin(url, endpoint)
+        try:
+            resp = SESSION.get(target, timeout=10)
+            if resp.status_code == 200:
+                results["rest_api"].append({
+                    "endpoint": endpoint,
+                    "status": resp.status_code,
+                    "content_type": resp.headers.get("Content-Type", ""),
+                    "size": len(resp.content)
+                })
+                
+                # Check for exposed API documentation
+                if "swagger" in endpoint.lower() or "openapi" in endpoint.lower():
+                    results["issues"].append(f"API documentation exposed at {endpoint}")
+        except Exception:
+            pass
+    
+    # GraphQL introspection check
+    graphql_endpoints = ["/graphql", "/api/graphql", "/graphql/console"]
+    introspection_query = '{"query": "{ __schema { types { name } } }"}'
+    
+    for endpoint in graphql_endpoints:
+        target = urljoin(url, endpoint)
+        try:
+            resp = SESSION.post(
+                target,
+                data=introspection_query,
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+            if resp.status_code == 200 and "__schema" in resp.text:
+                results["graphql"] = {
+                    "endpoint": endpoint,
+                    "introspection_enabled": True,
+                    "severity": "medium"
+                }
+                results["issues"].append(f"GraphQL introspection enabled at {endpoint}")
+                break
+        except Exception:
+            pass
+    
+    return results
+
+
+def xxe_detection(url: str) -> dict:
+    """Detect potential XXE vulnerabilities (safe payloads only)."""
+    xxe_endpoints = ["/api/upload", "/upload", "/import", "/parse"]
+    findings = []
+    
+    # Safe XXE detection payload (doesn't actually exploit)
+    safe_payload = '''<?xml version="1.0"?>
+<!DOCTYPE test [<!ENTITY xxe SYSTEM "file:///nonexistent">]>
+<test>&xxe;</test>'''
+    
+    for endpoint in xxe_endpoints:
+        target = urljoin(url, endpoint)
+        try:
+            resp = SESSION.post(
+                target,
+                data=safe_payload,
+                headers={"Content-Type": "application/xml"},
+                timeout=10
+            )
+            # Check for XML parsing errors that indicate XXE processing
+            error_indicators = ["entity", "dtd", "doctype", "external", "system"]
+            if any(ind in resp.text.lower() for ind in error_indicators):
+                findings.append({
+                    "endpoint": endpoint,
+                    "indicator": "XML entity processing detected",
+                    "status": resp.status_code,
+                    "severity": "high"
+                })
+        except Exception:
+            pass
+    
+    return {
+        "endpoints_tested": len(xxe_endpoints),
+        "findings": findings,
+        "vulnerable": len(findings) > 0
+    }
+
+
+def ssrf_detection(url: str) -> dict:
+    """Detect potential SSRF vulnerabilities."""
+    ssrf_params = ["url", "uri", "path", "dest", "redirect", "target", "rurl", "fetch", "link"]
+    findings = []
+    
+    # Canary URL - use a safe domain that doesn't exist
+    canary = "http://ssrf-canary.internal.test"
+    
+    parsed = urlparse(url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    
+    for param in ssrf_params:
+        test_url = f"{url}?{param}={quote(canary)}"
+        try:
+            resp = SESSION.get(test_url, timeout=10, allow_redirects=False)
+            # Check if the canary appears in response or if there's a connection attempt
+            if canary in resp.text or resp.status_code in [500, 502, 503]:
+                findings.append({
+                    "parameter": param,
+                    "indicator": "Potential SSRF - URL parameter may be fetched",
+                    "status": resp.status_code,
+                    "severity": "high"
+                })
+        except Exception:
+            pass
+    
+    return {
+        "parameters_tested": len(ssrf_params),
+        "findings": findings,
+        "potential_ssrf": len(findings) > 0
+    }
+
+
+def open_redirect_scan(url: str) -> dict:
+    """Scan for open redirect vulnerabilities."""
+    redirect_params = ["url", "redirect", "next", "return", "returnUrl", "goto", "destination", "redir", "out", "continue"]
+    findings = []
+    
+    evil_domain = "https://evil.com"
+    
+    for param in redirect_params:
+        test_url = f"{url}?{param}={quote(evil_domain)}"
+        try:
+            resp = SESSION.get(test_url, timeout=10, allow_redirects=False)
+            if resp.status_code in [301, 302, 303, 307, 308]:
+                location = resp.headers.get("Location", "")
+                if evil_domain in location:
+                    findings.append({
+                        "parameter": param,
+                        "redirect_to": location,
+                        "status": resp.status_code,
+                        "severity": "medium"
+                    })
+        except Exception:
+            pass
+    
+    return {
+        "parameters_tested": len(redirect_params),
+        "findings": findings,
+        "vulnerable": len(findings) > 0
+    }
+
+
+def header_injection_test(url: str) -> dict:
+    """Test for HTTP header injection vulnerabilities."""
+    findings = []
+    
+    # Test Host header injection
+    try:
+        resp = SESSION.get(
+            url,
+            headers={"Host": "evil.com"},
+            timeout=10,
+            allow_redirects=False
+        )
+        if "evil.com" in resp.text or "evil.com" in str(resp.headers):
+            findings.append({
+                "type": "Host Header Injection",
+                "severity": "high",
+                "indicator": "Host header reflected in response"
+            })
+    except Exception:
+        pass
+    
+    # Test X-Forwarded-Host
+    try:
+        resp = SESSION.get(
+            url,
+            headers={"X-Forwarded-Host": "evil.com"},
+            timeout=10
+        )
+        if "evil.com" in resp.text:
+            findings.append({
+                "type": "X-Forwarded-Host Injection",
+                "severity": "medium",
+                "indicator": "X-Forwarded-Host reflected in response"
+            })
+    except Exception:
+        pass
+    
+    return {
+        "tests_performed": 2,
+        "findings": findings,
+        "vulnerable": len(findings) > 0
+    }
+
+
+# ================================================================================
+#                    PHASE 6: CONTINUOUS ATTACK SURFACE MONITORING
+# ================================================================================
+
+def change_detection(scan_id_old: int, scan_id_new: int, db) -> dict:
+    """Detect changes between two scans."""
+    try:
+        old_row = db.execute("SELECT results FROM scans WHERE id=?", (scan_id_old,)).fetchone()
+        new_row = db.execute("SELECT results FROM scans WHERE id=?", (scan_id_new,)).fetchone()
+        
+        if not old_row or not new_row:
+            return {"error": "Scan not found"}
+        
+        old_results = json.loads(old_row["results"])
+        new_results = json.loads(new_row["results"])
+        
+        changes = {
+            "subdomains": {"added": [], "removed": []},
+            "open_ports": {"added": [], "removed": []},
+            "technologies": {"added": [], "removed": []},
+            "security_headers": {"improved": [], "degraded": []},
+            "risk_score_delta": 0
+        }
+        
+        # Subdomain changes
+        old_subs = set(old_results.get("subdomain_scan", {}).get("found", []))
+        new_subs = set(new_results.get("subdomain_scan", {}).get("found", []))
+        changes["subdomains"]["added"] = list(new_subs - old_subs)
+        changes["subdomains"]["removed"] = list(old_subs - new_subs)
+        
+        # Technology changes
+        old_tech = set(old_results.get("tech", {}).get("stack", []))
+        new_tech = set(new_results.get("tech", {}).get("stack", []))
+        changes["technologies"]["added"] = list(new_tech - old_tech)
+        changes["technologies"]["removed"] = list(old_tech - new_tech)
+        
+        # Risk score change
+        old_score = old_results.get("_summary", {}).get("risk_score", 0)
+        new_score = new_results.get("_summary", {}).get("risk_score", 0)
+        changes["risk_score_delta"] = new_score - old_score
+        
+        # Determine if changes are concerning
+        changes["alert_worthy"] = (
+            len(changes["subdomains"]["added"]) > 0 or
+            abs(changes["risk_score_delta"]) >= 10 or
+            len(changes["technologies"]["added"]) > 0
+        )
+        
+        return changes
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def trend_analysis(domain: str, db, limit: int = 10) -> dict:
+    """Analyze security trends over time for a domain."""
+    try:
+        rows = db.execute(
+            "SELECT id, results, scan_date FROM scans WHERE url LIKE ? ORDER BY id DESC LIMIT ?",
+            (f"%{domain}%", limit)
+        ).fetchall()
+        
+        if len(rows) < 2:
+            return {"error": "Need at least 2 scans for trend analysis"}
+        
+        data_points = []
+        for row in rows:
+            results = json.loads(row["results"])
+            summary = results.get("_summary", {})
+            data_points.append({
+                "scan_id": row["id"],
+                "date": row["scan_date"],
+                "risk_score": summary.get("risk_score", 0),
+                "subdomains": summary.get("subdomains", 0),
+                "missing_headers": summary.get("missing_sec_headers", 0)
+            })
+        
+        # Calculate trends
+        risk_scores = [d["risk_score"] for d in data_points]
+        trend = "stable"
+        if len(risk_scores) >= 2:
+            if risk_scores[0] > risk_scores[-1] + 10:
+                trend = "improving"
+            elif risk_scores[0] < risk_scores[-1] - 10:
+                trend = "degrading"
+        
+        return {
+            "domain": domain,
+            "total_scans": len(data_points),
+            "data_points": data_points,
+            "trend": trend,
+            "average_risk": statistics.mean(risk_scores) if risk_scores else 0,
+            "risk_std_dev": statistics.stdev(risk_scores) if len(risk_scores) > 1 else 0
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def cert_expiry_monitor(domain: str) -> dict:
+    """Monitor SSL certificate expiration."""
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+        
+        not_after = datetime.strptime(cert.get('notAfter', ''), '%b %d %H:%M:%S %Y %Z')
+        days_until_expiry = (not_after - datetime.utcnow()).days
+        
+        alert_level = "ok"
+        if days_until_expiry < 0:
+            alert_level = "critical"
+        elif days_until_expiry < 7:
+            alert_level = "high"
+        elif days_until_expiry < 30:
+            alert_level = "medium"
+        elif days_until_expiry < 60:
+            alert_level = "low"
+        
+        return {
+            "domain": domain,
+            "expires": not_after.isoformat(),
+            "days_until_expiry": days_until_expiry,
+            "alert_level": alert_level,
+            "issuer": dict(x[0] for x in cert.get('issuer', [])),
+            "san": [x[1] for x in cert.get('subjectAltName', [])]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ================================================================================
+#                       PHASE 8: INTEGRATION & AUTOMATION HUB
+# ================================================================================
+
+def export_splunk_format(results: dict, url: str) -> list:
+    """Export scan results in Splunk HEC format."""
+    events = []
+    timestamp = int(time.time())
+    
+    # Main summary event
+    events.append({
+        "time": timestamp,
+        "source": "aegis",
+        "sourcetype": "aegis:scan",
+        "event": {
+            "url": url,
+            "risk_score": results.get("_summary", {}).get("risk_score", 0),
+            "risk_level": results.get("_summary", {}).get("risk_level", "unknown"),
+            "subdomains_count": results.get("_summary", {}).get("subdomains", 0),
+            "vt_malicious": results.get("_summary", {}).get("vt_malicious", 0)
+        }
+    })
+    
+    # Vulnerability events
+    for vuln in results.get("cve_alerts", {}).get("rows", []):
+        events.append({
+            "time": timestamp,
+            "source": "aegis",
+            "sourcetype": "aegis:vulnerability",
+            "event": {
+                "url": url,
+                "cve_id": vuln.get("id"),
+                "cvss": vuln.get("cvss"),
+                "severity": vuln.get("severity"),
+                "technology": vuln.get("tech")
+            }
+        })
+    
+    return events
+
+
+def export_elastic_format(results: dict, url: str) -> list:
+    """Export scan results in Elasticsearch bulk format."""
+    docs = []
+    timestamp = datetime.utcnow().isoformat()
+    
+    # Main document
+    docs.append({
+        "_index": "aegis-scans",
+        "_source": {
+            "@timestamp": timestamp,
+            "url": url,
+            "domain": get_domain(url),
+            "risk": results.get("_summary", {}),
+            "scan_metadata": results.get("_meta", {})
+        }
+    })
+    
+    return docs
+
+
+def send_discord_notification(message: str, webhook_url: str = None) -> bool:
+    """Send notification to Discord webhook."""
+    url = webhook_url or DISCORD_WEBHOOK_URL
+    if not url:
+        return False
+    
+    try:
+        resp = requests.post(url, json={"content": message}, timeout=10)
+        return resp.ok
+    except Exception:
+        return False
+
+
+def send_teams_notification(message: str, webhook_url: str = None) -> bool:
+    """Send notification to Microsoft Teams webhook."""
+    url = webhook_url or TEAMS_WEBHOOK_URL
+    if not url:
+        return False
+    
+    try:
+        payload = {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "summary": "AEGIS Alert",
+            "themeColor": "FF0000",
+            "title": "AEGIS Security Alert",
+            "text": message
+        }
+        resp = requests.post(url, json=payload, timeout=10)
+        return resp.ok
+    except Exception:
+        return False
+
+
+def send_telegram_notification(message: str) -> bool:
+    """Send notification to Telegram."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        resp = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
+        return resp.ok
+    except Exception:
+        return False
+
+
+# ================================================================================
+#                      PHASE 9: MULTI-TARGET CAMPAIGN SCANNING
+# ================================================================================
+
+class CampaignManager:
+    """Manage multi-target scanning campaigns."""
+    
+    def __init__(self, db_connection):
+        self.db = db_connection
+    
+    def create_campaign(self, name: str, domains: list, services: list, mode: str = "defensive") -> int:
+        """Create a new scanning campaign."""
+        campaign_data = {
+            "domains": domains,
+            "services": services,
+            "mode": mode,
+            "status": "pending",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        cur = self.db.execute(
+            "INSERT INTO campaigns (name, domains, status, created_at) VALUES (?, ?, ?, ?)",
+            (name, json.dumps(campaign_data), "pending", datetime.utcnow().isoformat())
+        )
+        self.db.commit()
+        return cur.lastrowid
+    
+    def get_campaign_status(self, campaign_id: int) -> dict:
+        """Get campaign execution status."""
+        row = self.db.execute("SELECT * FROM campaigns WHERE id=?", (campaign_id,)).fetchone()
+        if not row:
+            return {"error": "Campaign not found"}
+        
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "status": row["status"],
+            "domains": json.loads(row["domains"]),
+            "created_at": row["created_at"]
+        }
+
+
+def asset_discovery(seed_domain: str) -> dict:
+    """Discover related assets from a seed domain."""
+    discovered = {
+        "subdomains": [],
+        "related_domains": [],
+        "ip_ranges": [],
+        "email_patterns": []
+    }
+    
+    # Get subdomains from multiple sources
+    try:
+        # crt.sh
+        resp = SESSION.get(
+            "https://crt.sh/",
+            params={"q": f"%.{seed_domain}", "output": "json"},
+            timeout=15
+        )
+        if resp.ok:
+            for entry in resp.json():
+                name = entry.get("name_value", "")
+                for line in name.split("\n"):
+                    subdomain = line.strip().lower()
+                    if subdomain and not subdomain.startswith("*") and subdomain not in discovered["subdomains"]:
+                        discovered["subdomains"].append(subdomain)
+    except Exception:
+        pass
+    
+    # Limit results
+    discovered["subdomains"] = discovered["subdomains"][:100]
+    
+    return {
+        "seed_domain": seed_domain,
+        "discovered": discovered,
+        "total_assets": len(discovered["subdomains"]) + len(discovered["related_domains"])
+    }
+
+
+def generate_executive_report(scan_ids: list, db) -> str:
+    """Generate executive summary report for multiple scans."""
+    scans_data = []
+    
+    for scan_id in scan_ids:
+        row = db.execute("SELECT url, results, scan_date FROM scans WHERE id=?", (scan_id,)).fetchone()
+        if row:
+            results = json.loads(row["results"])
+            scans_data.append({
+                "url": row["url"],
+                "scan_date": row["scan_date"],
+                "summary": results.get("_summary", {})
+            })
+    
+    if not scans_data:
+        return "No scan data available."
+    
+    # Generate summary
+    total_risk = sum(s["summary"].get("risk_score", 0) for s in scans_data)
+    avg_risk = total_risk / len(scans_data) if scans_data else 0
+    
+    high_risk = [s for s in scans_data if s["summary"].get("risk_score", 0) >= 60]
+    
+    report = f"""
+# AEGIS Executive Security Report
+Generated: {datetime.utcnow().isoformat()}
+
+## Summary
+- **Total Targets Scanned**: {len(scans_data)}
+- **Average Risk Score**: {avg_risk:.1f}/100
+- **High Risk Targets**: {len(high_risk)}
+
+## High Risk Targets
+"""
+    
+    for target in high_risk:
+        report += f"- {target['url']} (Risk: {target['summary'].get('risk_score', 0)})\n"
+    
+    return report
+
 # ---------------- Subdomain Scanner ----------------
 def _crtsh_subdomains(domain: str):
     """Passive OSINT from Certificate Transparency (crt.sh)."""
@@ -2653,18 +5226,24 @@ def crawl_website(start_url, max_depth=2, max_pages=50):
             
             # Process batch concurrently
             futures = {executor.submit(process_page, url, depth): (url, depth) for url, depth in batch}
-            for future in as_completed(futures, timeout=30):
-                try:
-                    result = future.result()
-                    if result:
-                        crawled['urls'].append(result['url'])
-                        crawled['stats']['pages_scanned'] += 1
-                        # Add new links to queue
-                        for link_url, link_depth in result.get('links', []):
-                            if link_url not in visited:
-                                to_visit.append((link_url, link_depth))
-                except Exception:
-                    crawled['stats']['errors'] += 1
+            try:
+                for future in as_completed(futures, timeout=30):
+                    try:
+                        result = future.result()
+                        if result:
+                            crawled['urls'].append(result['url'])
+                            crawled['stats']['pages_scanned'] += 1
+                            # Add new links to queue
+                            for link_url, link_depth in result.get('links', []):
+                                if link_url not in visited:
+                                    to_visit.append((link_url, link_depth))
+                    except Exception:
+                        crawled['stats']['errors'] += 1
+            except TimeoutError:
+                # Some futures timed out, collect what we have and continue
+                crawled['stats']['errors'] += 1
+                for future in futures:
+                    future.cancel()
     
     # Limit results to prevent massive output
     crawled['external_links'] = crawled['external_links'][:100]
@@ -3088,14 +5667,6 @@ def ssl_tls_analysis(domain: str):
     
     try:
         context = ssl.create_default_context()
-        # Enforce modern TLS (TLS 1.2+) for the analysis connection
-        try:
-            # Preferred on Python 3.7+
-            context.minimum_version = ssl.TLSVersion.TLSv1_2
-        except (AttributeError, ValueError):
-            # Fallback for older Python/OpenSSL: explicitly disable TLS 1.0 and 1.1
-            if hasattr(ssl, "OP_NO_TLSv1") and hasattr(ssl, "OP_NO_TLSv1_1"):
-                context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
         with socket.create_connection((domain, 443), timeout=10) as sock:
             with context.wrap_socket(sock, server_hostname=domain) as ssock:
                 result["protocol"] = ssock.version()
@@ -3410,6 +5981,2589 @@ def apply_mitre_mapping(results: dict):
         mitre_findings.append({**MITRE_MAPPING["dangerous_http_methods"], "evidence": f"Dangerous methods: {[d['method'] for d in results['http_methods']['dangerous']]}"})
     
     return {"findings": mitre_findings, "count": len(mitre_findings)}
+
+
+# ================================================================================
+#                     PHASE 6: INNOVATIVE ANALYSIS FEATURES (v4.0)
+# ================================================================================
+
+class EntropyScanner:
+    """Find high-entropy strings that may be secrets using Shannon entropy."""
+    
+    def __init__(self):
+        self.high_entropy_threshold = 4.5  # Bits per character
+        self.min_string_length = 16
+        self.max_string_length = 256
+        
+        # Common false positive patterns to filter
+        self.false_positive_patterns = [
+            re.compile(r'^[A-Za-z0-9+/=]+$'),  # Pure base64 (might be legit data)
+            re.compile(r'^[0-9a-f]+$', re.I),  # Pure hex (might be hash)
+            re.compile(r'^[A-Z_]+$'),  # Constants
+            re.compile(r'^(https?://|ftp://)'),  # URLs
+        ]
+        
+        # String extraction pattern
+        self.string_pattern = re.compile(r'["\']([A-Za-z0-9+/=_\-\.]{16,256})["\']')
+    
+    def calculate_entropy(self, data: str) -> float:
+        """Calculate Shannon entropy of a string."""
+        if not data:
+            return 0.0
+        
+        import math
+        from collections import Counter
+        
+        counts = Counter(data)
+        length = len(data)
+        entropy = 0.0
+        
+        for count in counts.values():
+            probability = count / length
+            entropy -= probability * math.log2(probability)
+        
+        return entropy
+    
+    def is_false_positive(self, s: str) -> bool:
+        """Check if string is likely a false positive."""
+        # Skip if matches common patterns
+        for pattern in self.false_positive_patterns:
+            if pattern.match(s):
+                # But allow if entropy is very high
+                if self.calculate_entropy(s) < 5.5:
+                    return True
+        
+        # Skip if too uniform
+        unique_chars = len(set(s))
+        if unique_chars < len(s) * 0.3:
+            return True
+        
+        return False
+    
+    def categorize_secret(self, s: str, entropy: float) -> str:
+        """Categorize potential secret type."""
+        s_lower = s.lower()
+        
+        if s.startswith('AKIA'):
+            return "AWS Access Key"
+        if s.startswith('ghp_') or s.startswith('gho_'):
+            return "GitHub Token"
+        if s.startswith('sk-') or s.startswith('pk_'):
+            return "API Key (Stripe-like)"
+        if s.startswith('eyJ'):
+            return "JWT Token"
+        if 'BEGIN' in s and 'PRIVATE' in s:
+            return "Private Key"
+        if entropy > 5.5:
+            return "High-Entropy Secret"
+        if entropy > 5.0:
+            return "Possible API Key"
+        return "Potential Secret"
+    
+    def scan_content(self, content: str) -> list:
+        """Scan content for high-entropy strings."""
+        findings = []
+        seen = set()
+        
+        matches = self.string_pattern.findall(content)
+        
+        for match in matches:
+            if match in seen:
+                continue
+            seen.add(match)
+            
+            if len(match) < self.min_string_length:
+                continue
+            
+            entropy = self.calculate_entropy(match)
+            
+            if entropy >= self.high_entropy_threshold:
+                if not self.is_false_positive(match):
+                    category = self.categorize_secret(match, entropy)
+                    severity = "critical" if entropy > 5.5 else "high" if entropy > 5.0 else "medium"
+                    
+                    findings.append({
+                        "value": match[:40] + "..." if len(match) > 40 else match,
+                        "entropy": round(entropy, 2),
+                        "length": len(match),
+                        "category": category,
+                        "severity": severity,
+                    })
+        
+        # Sort by entropy descending
+        findings.sort(key=lambda x: x["entropy"], reverse=True)
+        return findings[:20]  # Limit to top 20
+    
+    def scan_url(self, url: str) -> dict:
+        """Scan URL and its JavaScript files for high-entropy secrets."""
+        result = {
+            "secrets_found": [],
+            "js_files_scanned": 0,
+            "total_strings_analyzed": 0,
+            "high_entropy_count": 0
+        }
+        
+        try:
+            # Scan main page
+            resp = SESSION.get(url, timeout=DEFAULT_TIMEOUT)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            all_content = [resp.text]
+            
+            # Get all JavaScript files
+            for script in soup.find_all('script', src=True):
+                try:
+                    js_url = urljoin(url, script['src'])
+                    js_resp = SESSION.get(js_url, timeout=10)
+                    if js_resp.ok:
+                        all_content.append(js_resp.text)
+                        result["js_files_scanned"] += 1
+                except Exception:
+                    pass
+            
+            # Scan inline scripts
+            for script in soup.find_all('script', src=False):
+                if script.string:
+                    all_content.append(script.string)
+            
+            # Analyze all content
+            for content in all_content:
+                strings = self.string_pattern.findall(content)
+                result["total_strings_analyzed"] += len(strings)
+                
+                findings = self.scan_content(content)
+                result["secrets_found"].extend(findings)
+            
+            # Deduplicate
+            seen = set()
+            unique = []
+            for f in result["secrets_found"]:
+                if f["value"] not in seen:
+                    seen.add(f["value"])
+                    unique.append(f)
+            
+            result["secrets_found"] = unique[:20]
+            result["high_entropy_count"] = len(result["secrets_found"])
+            
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+
+
+class ReconWordlistGenerator:
+    """Generate custom wordlists from target content for bruteforce."""
+    
+    def __init__(self):
+        self.word_pattern = re.compile(r'\b[a-zA-Z][a-zA-Z0-9_-]{2,30}\b')
+        self.path_pattern = re.compile(r'(?:href|src|action)=["\']/?([a-zA-Z0-9_\-/]+)["\']', re.I)
+        self.js_identifier = re.compile(r'\b(?:var|let|const|function)\s+([a-zA-Z_][a-zA-Z0-9_]*)', re.I)
+        
+        # Common words to filter out
+        self.stopwords = {
+            'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had',
+            'her', 'was', 'one', 'our', 'out', 'has', 'have', 'this', 'that',
+            'with', 'they', 'from', 'been', 'will', 'your', 'more', 'when',
+            'class', 'function', 'return', 'const', 'var', 'let', 'import',
+            'export', 'default', 'true', 'false', 'null', 'undefined', 'type',
+            'script', 'style', 'div', 'span', 'img', 'src', 'href', 'link',
+        }
+    
+    def extract_from_html(self, content: str, url: str) -> set:
+        """Extract potential wordlist entries from HTML content."""
+        words = set()
+        
+        try:
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            # Extract from title
+            if soup.title and soup.title.string:
+                words.update(self.word_pattern.findall(soup.title.string))
+            
+            # Extract from meta tags
+            for meta in soup.find_all('meta', attrs={'name': True, 'content': True}):
+                words.update(self.word_pattern.findall(meta.get('content', '')))
+            
+            # Extract from links and paths
+            for tag in soup.find_all(['a', 'link', 'script', 'img', 'form']):
+                for attr in ['href', 'src', 'action']:
+                    val = tag.get(attr, '')
+                    if val:
+                        # Extract path segments
+                        path = urlparse(val).path
+                        segments = [s for s in path.split('/') if s and len(s) > 2]
+                        words.update(segments)
+            
+            # Extract from headings and important text
+            for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b']):
+                if tag.string:
+                    words.update(self.word_pattern.findall(tag.string))
+            
+            # Extract from id and class attributes
+            for tag in soup.find_all(True):
+                for attr in ['id', 'class', 'name', 'data-page', 'data-section']:
+                    val = tag.get(attr, '')
+                    if isinstance(val, list):
+                        val = ' '.join(val)
+                    words.update(self.word_pattern.findall(val))
+            
+        except Exception:
+            pass
+        
+        return words
+    
+    def extract_from_robots(self, url: str) -> set:
+        """Extract paths from robots.txt."""
+        words = set()
+        
+        try:
+            robots_url = urljoin(url, '/robots.txt')
+            resp = SESSION.get(robots_url, timeout=10)
+            if resp.ok:
+                for line in resp.text.splitlines():
+                    if ':' in line:
+                        parts = line.split(':', 1)
+                        if len(parts) == 2:
+                            path = parts[1].strip()
+                            segments = [s for s in path.split('/') if s and len(s) > 2]
+                            words.update(segments)
+        except Exception:
+            pass
+        
+        return words
+    
+    def extract_from_sitemap(self, url: str) -> set:
+        """Extract paths from sitemap.xml."""
+        words = set()
+        
+        try:
+            for sitemap_path in ['/sitemap.xml', '/sitemap_index.xml', '/sitemap.gz']:
+                sitemap_url = urljoin(url, sitemap_path)
+                resp = SESSION.get(sitemap_url, timeout=10)
+                if resp.ok and '<url>' in resp.text.lower():
+                    # Extract URLs from sitemap
+                    urls = re.findall(r'<loc>([^<]+)</loc>', resp.text, re.I)
+                    for u in urls[:100]:
+                        path = urlparse(u).path
+                        segments = [s for s in path.split('/') if s and len(s) > 2]
+                        words.update(segments)
+                    break
+        except Exception:
+            pass
+        
+        return words
+    
+    def extract_from_javascript(self, content: str) -> set:
+        """Extract identifiers from JavaScript."""
+        words = set()
+        
+        # Function and variable names
+        words.update(self.js_identifier.findall(content))
+        
+        # Object properties
+        props = re.findall(r'\.([a-zA-Z_][a-zA-Z0-9_]{2,30})', content)
+        words.update(props)
+        
+        # String literals that look like endpoints
+        endpoints = re.findall(r'["\']/?([a-zA-Z][a-zA-Z0-9_/-]{2,50})["\']', content)
+        for ep in endpoints:
+            segments = [s for s in ep.split('/') if s and len(s) > 2]
+            words.update(segments)
+        
+        return words
+    
+    def generate_wordlist(self, url: str) -> dict:
+        """Generate comprehensive wordlist from target."""
+        result = {
+            "subdomains": [],
+            "directories": [],
+            "parameters": [],
+            "combined": [],
+            "sources": {},
+            "stats": {}
+        }
+        
+        all_words = set()
+        
+        try:
+            # Get main page
+            resp = SESSION.get(url, timeout=DEFAULT_TIMEOUT)
+            
+            # Extract from HTML
+            html_words = self.extract_from_html(resp.text, url)
+            result["sources"]["html"] = len(html_words)
+            all_words.update(html_words)
+            
+            # Extract from robots.txt
+            robots_words = self.extract_from_robots(url)
+            result["sources"]["robots"] = len(robots_words)
+            all_words.update(robots_words)
+            
+            # Extract from sitemap
+            sitemap_words = self.extract_from_sitemap(url)
+            result["sources"]["sitemap"] = len(sitemap_words)
+            all_words.update(sitemap_words)
+            
+            # Extract from JavaScript
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            js_words = set()
+            
+            for script in soup.find_all('script', src=True):
+                try:
+                    js_url = urljoin(url, script['src'])
+                    js_resp = SESSION.get(js_url, timeout=10)
+                    if js_resp.ok:
+                        js_words.update(self.extract_from_javascript(js_resp.text))
+                except Exception:
+                    pass
+            
+            for script in soup.find_all('script', src=False):
+                if script.string:
+                    js_words.update(self.extract_from_javascript(script.string))
+            
+            result["sources"]["javascript"] = len(js_words)
+            all_words.update(js_words)
+            
+            # Filter and categorize
+            filtered = set()
+            for word in all_words:
+                word_lower = word.lower()
+                if word_lower not in self.stopwords and len(word) > 2:
+                    filtered.add(word_lower)
+            
+            # Generate subdomain variations
+            subdomains = []
+            for word in sorted(filtered)[:100]:
+                if len(word) <= 20 and word.isalnum():
+                    subdomains.append(word)
+                    # Add common variations
+                    subdomains.append(f"{word}-api")
+                    subdomains.append(f"{word}-dev")
+                    subdomains.append(f"api-{word}")
+            
+            # Generate directory variations
+            directories = []
+            for word in sorted(filtered)[:100]:
+                directories.append(f"/{word}")
+                directories.append(f"/{word}/")
+                directories.append(f"/api/{word}")
+            
+            result["subdomains"] = sorted(set(subdomains))[:200]
+            result["directories"] = sorted(set(directories))[:200]
+            result["combined"] = sorted(filtered)[:500]
+            result["stats"] = {
+                "total_unique_words": len(filtered),
+                "subdomain_variations": len(result["subdomains"]),
+                "directory_variations": len(result["directories"]),
+            }
+            
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+
+
+class PasswordPolicyDetector:
+    """Detect password complexity requirements from login forms."""
+    
+    def __init__(self):
+        self.login_patterns = [
+            re.compile(r'<form[^>]*(?:login|signin|auth)[^>]*>', re.I),
+            re.compile(r'<input[^>]*type=["\']password["\'][^>]*>', re.I),
+        ]
+        
+        self.register_patterns = [
+            re.compile(r'<form[^>]*(?:register|signup|create)[^>]*>', re.I),
+            re.compile(r'<input[^>]*(?:confirm|repeat|retype).*?password', re.I),
+        ]
+    
+    def find_forms(self, url: str) -> dict:
+        """Find login and registration forms."""
+        result = {
+            "login_forms": [],
+            "register_forms": [],
+            "password_fields": []
+        }
+        
+        try:
+            # Check common auth endpoints
+            endpoints = [
+                url, 
+                urljoin(url, '/login'),
+                urljoin(url, '/signin'),
+                urljoin(url, '/register'),
+                urljoin(url, '/signup'),
+                urljoin(url, '/auth'),
+            ]
+            
+            for endpoint in endpoints:
+                try:
+                    resp = SESSION.get(endpoint, timeout=10, allow_redirects=True)
+                    if resp.status_code == 200:
+                        soup = BeautifulSoup(resp.text, 'html.parser')
+                        
+                        # Find password fields
+                        for inp in soup.find_all('input', {'type': 'password'}):
+                            field_info = {
+                                "url": endpoint,
+                                "name": inp.get('name', ''),
+                                "id": inp.get('id', ''),
+                                "minlength": inp.get('minlength'),
+                                "maxlength": inp.get('maxlength'),
+                                "pattern": inp.get('pattern'),
+                                "required": inp.has_attr('required'),
+                                "autocomplete": inp.get('autocomplete'),
+                            }
+                            result["password_fields"].append(field_info)
+                        
+                        # Determine form type
+                        for form in soup.find_all('form'):
+                            form_text = str(form).lower()
+                            form_info = {
+                                "url": endpoint,
+                                "action": form.get('action', ''),
+                                "method": form.get('method', 'GET'),
+                            }
+                            
+                            if any(k in form_text for k in ['register', 'signup', 'create account']):
+                                result["register_forms"].append(form_info)
+                            elif any(k in form_text for k in ['login', 'signin', 'sign in']):
+                                result["login_forms"].append(form_info)
+                            elif soup.find('input', {'type': 'password'}):
+                                result["login_forms"].append(form_info)
+                    
+                except Exception:
+                    continue
+            
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+    
+    def analyze_javascript_validation(self, content: str) -> dict:
+        """Analyze JavaScript for password validation rules."""
+        rules = {
+            "min_length": None,
+            "max_length": None,
+            "requires_uppercase": False,
+            "requires_lowercase": False,
+            "requires_number": False,
+            "requires_special": False,
+            "patterns": []
+        }
+        
+        # Look for common patterns
+        patterns = [
+            (r'(?:password|pass).*?\.length\s*[<>=]+\s*(\d+)', 'length'),
+            (r'minlength[\'"]?\s*[:=]\s*(\d+)', 'min_length'),
+            (r'(?:password).*?(?:at least|minimum|min)\s*(\d+)', 'min_length'),
+            (r'[A-Z]', 'requires_uppercase'),
+            (r'[a-z]', 'requires_lowercase'),
+            (r'[0-9]|\\d', 'requires_number'),
+            (r'[!@#$%^&*(),.?":{}|<>]|special', 'requires_special'),
+        ]
+        
+        for pattern, rule_name in patterns:
+            matches = re.findall(pattern, content, re.I)
+            if matches:
+                if rule_name in ['min_length', 'length']:
+                    try:
+                        val = int(matches[0])
+                        if val > 0 and val < 100:
+                            rules["min_length"] = val
+                    except (ValueError, IndexError):
+                        pass
+                elif rule_name.startswith('requires_'):
+                    rules[rule_name] = True
+        
+        # Look for regex patterns
+        regex_patterns = re.findall(r'/([^/]+)/[gimsuy]*', content)
+        for p in regex_patterns[:10]:
+            if len(p) > 10 and any(c in p for c in ['[', '^', '$', '+']):
+                rules["patterns"].append(p[:100])
+        
+        return rules
+    
+    def estimate_policy(self, url: str) -> dict:
+        """Estimate password requirements for a target."""
+        result = {
+            "forms_found": 0,
+            "password_fields": [],
+            "estimated_policy": {
+                "min_length": 8,  # Default assumption
+                "max_length": None,
+                "requires_uppercase": False,
+                "requires_lowercase": False,
+                "requires_number": False,
+                "requires_special": False,
+                "confidence": "low"
+            },
+            "html5_validation": [],
+            "javascript_validation": {},
+            "recommendations": []
+        }
+        
+        try:
+            # Find forms
+            forms = self.find_forms(url)
+            result["forms_found"] = len(forms.get("login_forms", [])) + len(forms.get("register_forms", []))
+            result["password_fields"] = forms.get("password_fields", [])
+            
+            # Analyze HTML5 validation attributes
+            for field in result["password_fields"]:
+                if field.get("minlength"):
+                    try:
+                        result["estimated_policy"]["min_length"] = max(
+                            result["estimated_policy"]["min_length"],
+                            int(field["minlength"])
+                        )
+                        result["estimated_policy"]["confidence"] = "medium"
+                    except ValueError:
+                        pass
+                
+                if field.get("maxlength"):
+                    try:
+                        result["estimated_policy"]["max_length"] = int(field["maxlength"])
+                    except ValueError:
+                        pass
+                
+                if field.get("pattern"):
+                    result["html5_validation"].append({
+                        "field": field.get("name") or field.get("id"),
+                        "pattern": field["pattern"]
+                    })
+                    
+                    # Analyze pattern
+                    pattern = field["pattern"]
+                    if '[A-Z]' in pattern or '(?=.*[A-Z])' in pattern:
+                        result["estimated_policy"]["requires_uppercase"] = True
+                    if '[a-z]' in pattern or '(?=.*[a-z])' in pattern:
+                        result["estimated_policy"]["requires_lowercase"] = True
+                    if '\\d' in pattern or '[0-9]' in pattern:
+                        result["estimated_policy"]["requires_number"] = True
+                    if any(c in pattern for c in ['!', '@', '#', '$', '%', 'special']):
+                        result["estimated_policy"]["requires_special"] = True
+                    
+                    result["estimated_policy"]["confidence"] = "high"
+            
+            # Analyze JavaScript validation
+            resp = SESSION.get(url, timeout=DEFAULT_TIMEOUT)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            for script in soup.find_all('script', src=False):
+                if script.string:
+                    js_rules = self.analyze_javascript_validation(script.string)
+                    if js_rules.get("min_length"):
+                        result["estimated_policy"]["min_length"] = max(
+                            result["estimated_policy"]["min_length"],
+                            js_rules["min_length"]
+                        )
+                    for key in ["requires_uppercase", "requires_lowercase", "requires_number", "requires_special"]:
+                        if js_rules.get(key):
+                            result["estimated_policy"][key] = True
+                            result["estimated_policy"]["confidence"] = "medium"
+                    
+                    if js_rules.get("patterns"):
+                        result["javascript_validation"]["patterns"] = js_rules["patterns"]
+            
+            # Generate recommendations
+            policy = result["estimated_policy"]
+            if policy["min_length"] < 12:
+                result["recommendations"].append("Consider minimum 12+ character passwords")
+            if not policy["requires_uppercase"] or not policy["requires_lowercase"]:
+                result["recommendations"].append("Enforce mixed case requirements")
+            if not policy["requires_special"]:
+                result["recommendations"].append("Consider requiring special characters")
+            if not policy["max_length"] or policy["max_length"] > 128:
+                result["recommendations"].append("Set reasonable max length (64-128 chars)")
+            
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+
+
+class TechnologyTimeline:
+    """Track technology changes over time using Archive.org Wayback Machine."""
+    
+    def __init__(self):
+        self.cdx_api = "http://web.archive.org/cdx/search/cdx"
+        self.wayback_url = "http://web.archive.org/web"
+    
+    def get_snapshots(self, domain: str, count: int = 10) -> list:
+        """Get historical snapshots from Wayback Machine."""
+        snapshots = []
+        
+        try:
+            params = {
+                "url": domain,
+                "output": "json",
+                "limit": count * 3,  # Get more to filter
+                "fl": "timestamp,original,statuscode",
+                "filter": "statuscode:200",
+                "collapse": "timestamp:6"  # One per month
+            }
+            
+            resp = SESSION.get(self.cdx_api, params=params, timeout=15)
+            if resp.ok:
+                data = resp.json()
+                if len(data) > 1:  # First row is header
+                    for row in data[1:count+1]:
+                        if len(row) >= 3:
+                            snapshots.append({
+                                "timestamp": row[0],
+                                "url": row[1],
+                                "status": row[2],
+                                "date": f"{row[0][:4]}-{row[0][4:6]}-{row[0][6:8]}",
+                                "wayback_url": f"{self.wayback_url}/{row[0]}/{row[1]}"
+                            })
+        except Exception as e:
+            logger.debug(f"Wayback snapshot fetch failed: {e}")
+        
+        return snapshots
+    
+    def fingerprint_snapshot(self, wayback_url: str) -> dict:
+        """Fingerprint technologies in a historical snapshot."""
+        tech = {
+            "server": None,
+            "frameworks": [],
+            "libraries": [],
+            "cms": None,
+            "cdn": None,
+        }
+        
+        try:
+            resp = SESSION.get(wayback_url, timeout=15, allow_redirects=True)
+            if not resp.ok:
+                return tech
+            
+            html = resp.text.lower()
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            
+            # Server detection
+            if 'x-powered-by' in headers:
+                tech["server"] = headers.get('x-powered-by')
+            if 'server' in headers:
+                tech["server"] = headers.get('server')
+            
+            # Framework detection
+            frameworks = {
+                'react': ['react', 'reactdom', '__react'],
+                'angular': ['ng-', 'angular', 'ng-app'],
+                'vue': ['vue.js', 'v-if', 'v-for'],
+                'jquery': ['jquery'],
+                'bootstrap': ['bootstrap'],
+                'tailwind': ['tailwind'],
+            }
+            
+            for fw, patterns in frameworks.items():
+                if any(p in html for p in patterns):
+                    tech["frameworks"].append(fw)
+            
+            # CMS detection
+            cms_patterns = {
+                'WordPress': ['wp-content', 'wp-includes', 'wordpress'],
+                'Drupal': ['drupal', 'sites/all', 'sites/default'],
+                'Joomla': ['joomla', '/components/com_'],
+                'Shopify': ['shopify', 'myshopify'],
+                'Squarespace': ['squarespace'],
+            }
+            
+            for cms, patterns in cms_patterns.items():
+                if any(p in html for p in patterns):
+                    tech["cms"] = cms
+                    break
+            
+            # CDN detection from headers
+            if 'cloudflare' in str(headers).lower():
+                tech["cdn"] = "Cloudflare"
+            elif 'x-amz' in str(headers).lower():
+                tech["cdn"] = "CloudFront"
+            elif 'akamai' in str(headers).lower():
+                tech["cdn"] = "Akamai"
+            
+        except Exception:
+            pass
+        
+        return tech
+    
+    def build_timeline(self, domain: str) -> dict:
+        """Build technology evolution timeline for a domain."""
+        result = {
+            "domain": domain,
+            "snapshots_analyzed": 0,
+            "timeline": [],
+            "changes": [],
+            "first_seen": {},
+            "no_longer_seen": {}
+        }
+        
+        try:
+            snapshots = self.get_snapshots(domain, count=10)
+            result["snapshots_analyzed"] = len(snapshots)
+            
+            prev_tech = None
+            
+            for snapshot in snapshots:
+                tech = self.fingerprint_snapshot(snapshot["wayback_url"])
+                
+                entry = {
+                    "date": snapshot["date"],
+                    "timestamp": snapshot["timestamp"],
+                    **tech
+                }
+                result["timeline"].append(entry)
+                
+                # Detect changes
+                if prev_tech:
+                    # Check for new frameworks
+                    new_fw = set(tech.get("frameworks", [])) - set(prev_tech.get("frameworks", []))
+                    removed_fw = set(prev_tech.get("frameworks", [])) - set(tech.get("frameworks", []))
+                    
+                    if new_fw:
+                        result["changes"].append({
+                            "date": snapshot["date"],
+                            "type": "added",
+                            "category": "framework",
+                            "items": list(new_fw)
+                        })
+                        for fw in new_fw:
+                            if fw not in result["first_seen"]:
+                                result["first_seen"][fw] = snapshot["date"]
+                    
+                    if removed_fw:
+                        result["changes"].append({
+                            "date": snapshot["date"],
+                            "type": "removed",
+                            "category": "framework",
+                            "items": list(removed_fw)
+                        })
+                        for fw in removed_fw:
+                            result["no_longer_seen"][fw] = snapshot["date"]
+                    
+                    # Check CMS changes
+                    if tech.get("cms") != prev_tech.get("cms"):
+                        result["changes"].append({
+                            "date": snapshot["date"],
+                            "type": "changed",
+                            "category": "cms",
+                            "from": prev_tech.get("cms"),
+                            "to": tech.get("cms")
+                        })
+                
+                prev_tech = tech
+            
+            result["timeline"].reverse()  # Oldest first
+            result["changes"].reverse()
+            
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+
+
+class ScanDiffAnalyzer:
+    """Compare scan results and highlight changes."""
+    
+    def compare_lists(self, current: list, previous: list) -> dict:
+        """Compare two lists and find additions/removals."""
+        current_set = set(current) if current else set()
+        previous_set = set(previous) if previous else set()
+        
+        return {
+            "added": list(current_set - previous_set),
+            "removed": list(previous_set - current_set),
+            "unchanged": list(current_set & previous_set),
+            "total_current": len(current_set),
+            "total_previous": len(previous_set)
+        }
+    
+    def compare_dicts(self, current: dict, previous: dict, key: str = None) -> dict:
+        """Compare two dictionaries for changes."""
+        changes = {
+            "added_keys": [],
+            "removed_keys": [],
+            "modified_keys": [],
+            "unchanged_keys": []
+        }
+        
+        current = current or {}
+        previous = previous or {}
+        
+        all_keys = set(current.keys()) | set(previous.keys())
+        
+        for k in all_keys:
+            if k.startswith('_'):
+                continue
+            
+            if k in current and k not in previous:
+                changes["added_keys"].append(k)
+            elif k in previous and k not in current:
+                changes["removed_keys"].append(k)
+            elif current.get(k) != previous.get(k):
+                changes["modified_keys"].append(k)
+            else:
+                changes["unchanged_keys"].append(k)
+        
+        return changes
+    
+    def analyze(self, current_results: dict, previous_results: dict) -> dict:
+        """Comprehensive diff analysis between two scan results."""
+        if not previous_results:
+            return {
+                "has_previous": False,
+                "message": "No previous scan to compare",
+                "changes": []
+            }
+        
+        result = {
+            "has_previous": True,
+            "changes": [],
+            "summary": {
+                "total_changes": 0,
+                "critical_changes": 0,
+                "new_findings": 0,
+                "resolved_findings": 0
+            }
+        }
+        
+        # Compare subdomains
+        current_subs = []
+        previous_subs = []
+        
+        if current_results.get("subdomain_scan", {}).get("rows"):
+            current_subs = [r.get("subdomain") for r in current_results["subdomain_scan"]["rows"]]
+        if previous_results.get("subdomain_scan", {}).get("rows"):
+            previous_subs = [r.get("subdomain") for r in previous_results["subdomain_scan"]["rows"]]
+        
+        sub_diff = self.compare_lists(current_subs, previous_subs)
+        if sub_diff["added"] or sub_diff["removed"]:
+            result["changes"].append({
+                "category": "Subdomains",
+                "type": "list_change",
+                "added": sub_diff["added"][:10],
+                "removed": sub_diff["removed"][:10],
+                "severity": "high" if sub_diff["added"] else "info"
+            })
+            result["summary"]["total_changes"] += len(sub_diff["added"]) + len(sub_diff["removed"])
+        
+        # Compare technologies
+        current_tech = current_results.get("tech", {}).get("stack", [])
+        previous_tech = previous_results.get("tech", {}).get("stack", [])
+        
+        tech_diff = self.compare_lists(current_tech, previous_tech)
+        if tech_diff["added"] or tech_diff["removed"]:
+            result["changes"].append({
+                "category": "Technologies",
+                "type": "list_change",
+                "added": tech_diff["added"],
+                "removed": tech_diff["removed"],
+                "severity": "medium"
+            })
+            result["summary"]["total_changes"] += len(tech_diff["added"]) + len(tech_diff["removed"])
+        
+        # Compare security headers
+        current_headers = {r.get("header"): r.get("status") for r in current_results.get("sec_headers", {}).get("rows", [])}
+        previous_headers = {r.get("header"): r.get("status") for r in previous_results.get("sec_headers", {}).get("rows", [])}
+        
+        header_changes = []
+        for header in set(list(current_headers.keys()) + list(previous_headers.keys())):
+            curr = current_headers.get(header)
+            prev = previous_headers.get(header)
+            if curr != prev:
+                header_changes.append({
+                    "header": header,
+                    "from": prev,
+                    "to": curr,
+                    "improved": curr == "OK" and prev != "OK"
+                })
+        
+        if header_changes:
+            improved = [h for h in header_changes if h.get("improved")]
+            degraded = [h for h in header_changes if not h.get("improved")]
+            
+            result["changes"].append({
+                "category": "Security Headers",
+                "type": "status_change",
+                "improved": len(improved),
+                "degraded": len(degraded),
+                "details": header_changes[:10],
+                "severity": "high" if degraded else "info"
+            })
+            result["summary"]["total_changes"] += len(header_changes)
+            if degraded:
+                result["summary"]["critical_changes"] += len(degraded)
+        
+        # Compare risk scores
+        current_score = current_results.get("_summary", {}).get("risk_score", 0)
+        previous_score = previous_results.get("_summary", {}).get("risk_score", 0)
+        
+        if current_score != previous_score:
+            result["changes"].append({
+                "category": "Risk Score",
+                "type": "score_change",
+                "from": previous_score,
+                "to": current_score,
+                "delta": current_score - previous_score,
+                "severity": "critical" if current_score > previous_score + 20 else "medium"
+            })
+            result["summary"]["total_changes"] += 1
+            if current_score > previous_score + 20:
+                result["summary"]["critical_changes"] += 1
+        
+        # Compare JS secrets
+        current_secrets = [s.get("value") for s in current_results.get("js_secrets", {}).get("secrets_found", [])]
+        previous_secrets = [s.get("value") for s in previous_results.get("js_secrets", {}).get("secrets_found", [])]
+        
+        secret_diff = self.compare_lists(current_secrets, previous_secrets)
+        if secret_diff["added"]:
+            result["changes"].append({
+                "category": "Exposed Secrets",
+                "type": "new_finding",
+                "count": len(secret_diff["added"]),
+                "severity": "critical"
+            })
+            result["summary"]["new_findings"] += len(secret_diff["added"])
+            result["summary"]["critical_changes"] += len(secret_diff["added"])
+        
+        if secret_diff["removed"]:
+            result["summary"]["resolved_findings"] += len(secret_diff["removed"])
+        
+        return result
+
+
+class AttackSurfaceMapper:
+    """Build visual map of attack surface."""
+    
+    def collect_assets(self, results: dict) -> dict:
+        """Collect all discovered assets from scan results."""
+        assets = {
+            "domains": set(),
+            "subdomains": set(),
+            "ips": set(),
+            "emails": set(),
+            "ports": [],
+            "technologies": set(),
+            "endpoints": set(),
+            "external_links": set()
+        }
+        
+        # Base domain
+        meta = results.get("_meta", {})
+        if meta.get("base_domain"):
+            assets["domains"].add(meta["base_domain"])
+        
+        # Subdomains and IPs
+        for row in results.get("subdomain_scan", {}).get("rows", []):
+            if row.get("subdomain"):
+                assets["subdomains"].add(row["subdomain"])
+            for ip in row.get("a_records", []):
+                assets["ips"].add(ip)
+        
+        # Port scan results
+        if results.get("port_scan", {}).get("open_ports"):
+            assets["ports"] = results["port_scan"]["open_ports"]
+        
+        # Technologies
+        if results.get("tech", {}).get("stack"):
+            assets["technologies"].update(results["tech"]["stack"])
+        
+        # Crawler data
+        crawler = results.get("crawler", {})
+        if crawler.get("emails"):
+            assets["emails"].update(crawler["emails"])
+        if crawler.get("external_links"):
+            for link in crawler["external_links"][:50]:
+                assets["external_links"].add(link)
+        
+        # Endpoints from exposure checks
+        for row in results.get("exposure_checks", {}).get("rows", []):
+            if row.get("status") in [200, 301, 302]:
+                assets["endpoints"].add(row.get("path", ""))
+        
+        return {k: list(v) if isinstance(v, set) else v for k, v in assets.items()}
+    
+    def build_graph(self, assets: dict, results: dict) -> dict:
+        """Build graph representation of attack surface."""
+        nodes = []
+        edges = []
+        node_ids = {}
+        
+        def add_node(id: str, label: str, group: str, size: int = 10, data: dict = None):
+            if id not in node_ids:
+                node_ids[id] = len(nodes)
+                nodes.append({
+                    "id": id,
+                    "label": label[:30],
+                    "group": group,
+                    "size": size,
+                    "data": data or {}
+                })
+            return node_ids[id]
+        
+        def add_edge(from_id: str, to_id: str, label: str = ""):
+            edges.append({
+                "from": from_id,
+                "to": to_id,
+                "label": label
+            })
+        
+        # Add main domain as central node
+        base_domain = results.get("_meta", {}).get("base_domain", "target")
+        add_node(base_domain, base_domain, "domain", 30)
+        
+        # Add subdomains
+        for sub in assets.get("subdomains", [])[:30]:
+            add_node(sub, sub, "subdomain", 15)
+            add_edge(base_domain, sub, "subdomain")
+        
+        # Add IPs
+        for ip in assets.get("ips", [])[:20]:
+            add_node(ip, ip, "ip", 12)
+            # Connect IPs to subdomains
+            for row in results.get("subdomain_scan", {}).get("rows", []):
+                if ip in row.get("a_records", []):
+                    add_edge(row.get("subdomain", ""), ip, "resolves")
+        
+        # Add technologies
+        for tech in assets.get("technologies", [])[:15]:
+            tech_id = f"tech_{tech}"
+            add_node(tech_id, tech, "technology", 8)
+            add_edge(base_domain, tech_id, "uses")
+        
+        # Add open ports
+        for port_info in assets.get("ports", [])[:10]:
+            port_id = f"port_{port_info['port']}"
+            add_node(port_id, f"{port_info['port']}/{port_info['service']}", "port", 8)
+            if assets.get("ips"):
+                add_edge(assets["ips"][0], port_id, "exposes")
+        
+        # Add emails
+        for email in assets.get("emails", [])[:10]:
+            add_node(email, email, "email", 8)
+            add_edge(base_domain, email, "email")
+        
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "stats": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "groups": {
+                    "domains": len([n for n in nodes if n["group"] == "domain"]),
+                    "subdomains": len([n for n in nodes if n["group"] == "subdomain"]),
+                    "ips": len([n for n in nodes if n["group"] == "ip"]),
+                    "technologies": len([n for n in nodes if n["group"] == "technology"]),
+                    "ports": len([n for n in nodes if n["group"] == "port"]),
+                    "emails": len([n for n in nodes if n["group"] == "email"]),
+                }
+            }
+        }
+    
+    def map_surface(self, results: dict) -> dict:
+        """Generate complete attack surface map."""
+        assets = self.collect_assets(results)
+        graph = self.build_graph(assets, results)
+        
+        # Calculate attack surface score
+        score = 0
+        score += len(assets.get("subdomains", [])) * 2
+        score += len(assets.get("ips", [])) * 5
+        score += len(assets.get("ports", [])) * 10
+        score += len(assets.get("endpoints", [])) * 3
+        score += len(assets.get("technologies", [])) * 1
+        
+        return {
+            "assets": assets,
+            "graph": graph,
+            "attack_surface_score": min(100, score),
+            "summary": {
+                "total_subdomains": len(assets.get("subdomains", [])),
+                "total_ips": len(assets.get("ips", [])),
+                "total_ports": len(assets.get("ports", [])),
+                "total_technologies": len(assets.get("technologies", [])),
+                "total_endpoints": len(assets.get("endpoints", [])),
+                "total_emails": len(assets.get("emails", [])),
+            }
+        }
+
+
+class ReportNarrativeGenerator:
+    """Generate management-friendly report narratives."""
+    
+    def __init__(self):
+        self.severity_descriptions = {
+            "critical": "requires immediate attention and remediation",
+            "high": "should be addressed as a priority",
+            "medium": "warrants attention in the near term",
+            "low": "can be addressed during regular maintenance",
+            "info": "is informational and may not require action"
+        }
+        
+        self.finding_explanations = {
+            "missing_csp": "The website is missing Content Security Policy headers, which help prevent cross-site scripting (XSS) attacks. Think of this like leaving a door without a lock - while it might work fine normally, it's vulnerable to break-ins.",
+            
+            "weak_tls": "The website uses outdated encryption protocols. This is similar to using an old, easily-picked lock on your front door when stronger options are available.",
+            
+            "exposed_secrets": "Sensitive credentials (like passwords or API keys) were found exposed in the website's code. This is like leaving your house keys under the doormat where anyone can find them.",
+            
+            "cors_vulnerable": "The website allows other websites to request data from it without proper restrictions. This could allow malicious websites to steal information from your users.",
+            
+            "subdomain_takeover": "Some subdomains point to services that are no longer active, which could allow attackers to take control of them. It's like having an unused building on your property that squatters could occupy.",
+            
+            "js_secrets": "JavaScript files on the website contain what appear to be passwords, API keys, or other sensitive information that should not be publicly visible.",
+            
+            "missing_headers": "Several security headers that help protect against common attacks are not configured. These headers are like additional security features on a car - not strictly required, but highly recommended.",
+        }
+    
+    def generate_severity_summary(self, results: dict) -> str:
+        """Generate natural language severity summary."""
+        summary = results.get("_summary", {})
+        risk_level = summary.get("risk_level", "unknown")
+        risk_score = summary.get("risk_score", 0)
+        
+        if risk_level == "critical":
+            return f"The security assessment has identified **critical issues** that require immediate attention. With a risk score of {risk_score}/100, the target's security posture is significantly below acceptable levels and urgent remediation is recommended."
+        elif risk_level == "high":
+            return f"The assessment reveals **high-risk vulnerabilities** that should be prioritized. The risk score of {risk_score}/100 indicates substantial security gaps that could be exploited by attackers."
+        elif risk_level == "medium":
+            return f"Several **moderate security concerns** were identified. With a risk score of {risk_score}/100, the target has room for improvement but is not immediately at critical risk."
+        else:
+            return f"The security posture appears **relatively healthy** with a risk score of {risk_score}/100. Some improvements are recommended but no critical issues were detected."
+    
+    def explain_finding(self, finding_type: str, details: dict = None) -> str:
+        """Provide non-technical explanation for a finding."""
+        base = self.finding_explanations.get(finding_type, 
+            "A security concern was identified that may require attention.")
+        
+        if details:
+            if isinstance(details, dict) and details.get("count"):
+                base += f" ({details['count']} instances found)"
+        
+        return base
+    
+    def generate_executive_summary(self, results: dict) -> str:
+        """Generate executive summary for management."""
+        summary = results.get("_summary", {})
+        meta = results.get("_meta", {})
+        
+        url = meta.get("base_domain", "the target")
+        risk_score = summary.get("risk_score", 0)
+        
+        # Count issues by severity
+        high_count = 0
+        medium_count = 0
+        
+        if results.get("js_secrets", {}).get("secrets_found"):
+            high_count += len(results["js_secrets"]["secrets_found"])
+        if results.get("subdomain_takeover", {}).get("vulnerable"):
+            high_count += len(results["subdomain_takeover"]["vulnerable"])
+        if results.get("cors", {}).get("vulnerable"):
+            medium_count += 1
+        
+        missing_headers = 0
+        for row in results.get("sec_headers", {}).get("rows", []):
+            if row.get("status") != "OK":
+                missing_headers += 1
+        
+        sections = [
+            f"## Executive Summary\n\n",
+            f"A comprehensive security assessment of **{url}** was conducted on {meta.get('scan_time', 'today')}.\n\n",
+            self.generate_severity_summary(results),
+            f"\n\n### Key Findings\n\n"
+        ]
+        
+        findings = []
+        if high_count > 0:
+            findings.append(f"- **{high_count} high-severity issues** identified that {self.severity_descriptions['high']}")
+        if medium_count > 0:
+            findings.append(f"- **{medium_count} medium-severity concerns** that {self.severity_descriptions['medium']}")
+        if missing_headers > 0:
+            findings.append(f"- **{missing_headers} security headers** are missing or improperly configured")
+        
+        if not findings:
+            findings.append("- No critical security issues were detected during this assessment")
+        
+        sections.append("\n".join(findings))
+        sections.append("\n\n### Recommendations\n\n")
+        
+        recs = self.generate_recommendations(results)
+        sections.append("\n".join([f"{i+1}. {r['recommendation']}" for i, r in enumerate(recs[:5])]))
+        
+        return "".join(sections)
+    
+    def generate_recommendations(self, results: dict) -> list:
+        """Generate prioritized recommendations in plain language."""
+        recommendations = []
+        
+        # Check for exposed secrets
+        if results.get("js_secrets", {}).get("secrets_found"):
+            recommendations.append({
+                "priority": 1,
+                "severity": "critical",
+                "category": "Data Exposure",
+                "recommendation": "Immediately rotate all exposed credentials and remove sensitive data from client-side code.",
+                "business_impact": "Exposed credentials could lead to data breaches, unauthorized access, and regulatory penalties."
+            })
+        
+        # Check for subdomain takeover
+        if results.get("subdomain_takeover", {}).get("vulnerable"):
+            recommendations.append({
+                "priority": 2,
+                "severity": "high",
+                "category": "Infrastructure",
+                "recommendation": "Review and remove unused DNS records pointing to inactive services.",
+                "business_impact": "Attackers could hijack these subdomains to host malicious content under your brand."
+            })
+        
+        # Check TLS/SSL
+        if results.get("ssl_tls", {}).get("grade") in ["D", "F"]:
+            recommendations.append({
+                "priority": 3,
+                "severity": "high",
+                "category": "Encryption",
+                "recommendation": "Upgrade to TLS 1.2 or 1.3 with modern cipher suites.",
+                "business_impact": "Weak encryption could allow attackers to intercept sensitive data in transit."
+            })
+        
+        # Check security headers
+        missing_headers = [r for r in results.get("sec_headers", {}).get("rows", []) if r.get("status") != "OK"]
+        if len(missing_headers) > 3:
+            recommendations.append({
+                "priority": 4,
+                "severity": "medium",
+                "category": "Configuration",
+                "recommendation": f"Implement missing security headers: {', '.join([h['header'] for h in missing_headers[:3]])}.",
+                "business_impact": "Missing headers leave the application vulnerable to common web attacks."
+            })
+        
+        # CORS issues
+        if results.get("cors", {}).get("vulnerable"):
+            recommendations.append({
+                "priority": 5,
+                "severity": "medium",
+                "category": "Access Control",
+                "recommendation": "Restrict Cross-Origin Resource Sharing (CORS) to trusted domains only.",
+                "business_impact": "Misconfigured CORS could allow malicious websites to steal user data."
+            })
+        
+        return sorted(recommendations, key=lambda x: x["priority"])
+    
+    def generate_full_report(self, results: dict) -> dict:
+        """Generate complete narrative report."""
+        return {
+            "executive_summary": self.generate_executive_summary(results),
+            "severity_summary": self.generate_severity_summary(results),
+            "recommendations": self.generate_recommendations(results),
+            "format": "narrative",
+            "generated_at": datetime.now().isoformat()
+        }
+
+
+class DeltaAlertManager:
+    """Manage delta alerts for change detection."""
+    
+    def __init__(self):
+        self.diff_analyzer = ScanDiffAnalyzer()
+    
+    def get_baseline(self, domain: str, db) -> dict:
+        """Get baseline scan for a domain."""
+        try:
+            row = db.execute(
+                "SELECT results FROM scans WHERE url LIKE ? ORDER BY id DESC LIMIT 1 OFFSET 1",
+                (f"%{domain}%",)
+            ).fetchone()
+            if row:
+                return json.loads(row["results"])
+        except Exception:
+            pass
+        return None
+    
+    def check_for_changes(self, current_results: dict, db) -> dict:
+        """Check for significant changes from baseline."""
+        meta = current_results.get("_meta", {})
+        domain = meta.get("base_domain", "")
+        
+        baseline = self.get_baseline(domain, db)
+        
+        if not baseline:
+            return {
+                "has_baseline": False,
+                "message": "No baseline scan available for comparison",
+                "alerts": []
+            }
+        
+        diff = self.diff_analyzer.analyze(current_results, baseline)
+        
+        alerts = []
+        
+        for change in diff.get("changes", []):
+            severity = change.get("severity", "info")
+            if severity in ["critical", "high"]:
+                alerts.append({
+                    "type": "change_detected",
+                    "category": change.get("category"),
+                    "severity": severity,
+                    "description": self._describe_change(change),
+                    "timestamp": datetime.now().isoformat()
+                })
+        
+        return {
+            "has_baseline": True,
+            "alerts": alerts,
+            "total_changes": diff.get("summary", {}).get("total_changes", 0),
+            "critical_changes": diff.get("summary", {}).get("critical_changes", 0),
+            "diff_summary": diff.get("summary", {}),
+            "changes": diff.get("changes", [])[:10]
+        }
+    
+    def _describe_change(self, change: dict) -> str:
+        """Generate human-readable description of a change."""
+        category = change.get("category", "Unknown")
+        change_type = change.get("type", "change")
+        
+        if change_type == "list_change":
+            added = len(change.get("added", []))
+            removed = len(change.get("removed", []))
+            return f"{category}: {added} new items added, {removed} items removed"
+        
+        elif change_type == "score_change":
+            delta = change.get("delta", 0)
+            direction = "increased" if delta > 0 else "decreased"
+            return f"{category} {direction} by {abs(delta)} points"
+        
+        elif change_type == "new_finding":
+            return f"{category}: {change.get('count', 0)} new findings detected"
+        
+        return f"{category} has changed"
+
+
+# Initialize v4.0 feature instances
+entropy_scanner = EntropyScanner()
+wordlist_generator = ReconWordlistGenerator()
+password_detector = PasswordPolicyDetector()
+tech_timeline = TechnologyTimeline()
+scan_diff_analyzer = ScanDiffAnalyzer()
+attack_surface_mapper = AttackSurfaceMapper()
+report_narrative_gen = ReportNarrativeGenerator()
+delta_alert_manager = DeltaAlertManager()
+
+
+# ============================================================================
+# AEGIS v5.0 - ADVANCED FEATURES (23 Modules - 100% Local, No API Required)
+# ============================================================================
+
+class CryptoAddressScanner:
+    """Scan for exposed cryptocurrency wallet addresses."""
+    
+    PATTERNS = {
+        "bitcoin": r'\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b',
+        "bitcoin_bech32": r'\bbc1[a-z0-9]{39,59}\b',
+        "ethereum": r'\b0x[a-fA-F0-9]{40}\b',
+        "monero": r'\b4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}\b',
+        "litecoin": r'\b[LM][a-km-zA-HJ-NP-Z1-9]{26,33}\b',
+        "dogecoin": r'\bD[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}\b',
+        "ripple": r'\br[0-9a-zA-Z]{24,34}\b',
+        "solana": r'\b[1-9A-HJ-NP-Za-km-z]{32,44}\b',
+    }
+    
+    def scan(self, content: str, urls: list = None) -> dict:
+        """Scan content for cryptocurrency addresses."""
+        findings = []
+        seen = set()
+        
+        for crypto_type, pattern in self.PATTERNS.items():
+            matches = re.findall(pattern, content)
+            for match in matches:
+                if match not in seen and len(match) > 20:
+                    seen.add(match)
+                    findings.append({
+                        "type": crypto_type,
+                        "address": match,
+                        "risk": "high" if crypto_type in ["bitcoin", "ethereum"] else "medium"
+                    })
+        
+        return {
+            "total_found": len(findings),
+            "addresses": findings[:50],
+            "types_detected": list(set(f["type"] for f in findings))
+        }
+
+
+class MediaAssetScanner:
+    """Find audio, video, and document files on target."""
+    
+    EXTENSIONS = {
+        "video": [".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".wmv"],
+        "audio": [".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"],
+        "document": [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"],
+        "archive": [".zip", ".rar", ".7z", ".tar", ".gz"],
+        "image": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico"]
+    }
+    
+    def scan(self, html_content: str, base_url: str) -> dict:
+        """Extract media asset URLs from HTML."""
+        assets = {"video": [], "audio": [], "document": [], "archive": [], "image": []}
+        seen = set()
+        
+        url_pattern = r'(?:href|src|data-src|poster)=["\']([^"\']+)["\']'
+        matches = re.findall(url_pattern, html_content, re.I)
+        
+        for url in matches:
+            if url in seen:
+                continue
+            seen.add(url)
+            
+            lower_url = url.lower()
+            for asset_type, exts in self.EXTENSIONS.items():
+                if any(lower_url.endswith(ext) for ext in exts):
+                    full_url = urljoin(base_url, url) if not url.startswith("http") else url
+                    assets[asset_type].append(full_url)
+                    break
+        
+        return {
+            "total_assets": sum(len(v) for v in assets.values()),
+            "assets": {k: v[:20] for k, v in assets.items()},
+            "summary": {k: len(v) for k, v in assets.items()}
+        }
+
+
+class MobileAppDetector:
+    """Detect mobile app presence and deep links."""
+    
+    def scan(self, html_content: str, headers: dict = None) -> dict:
+        """Detect mobile app indicators."""
+        results = {"ios": {}, "android": {}, "deep_links": [], "smart_banners": False}
+        
+        # iOS App Store
+        ios_match = re.search(r'apps\.apple\.com/[^/]+/app/[^/]+/id(\d+)', html_content)
+        if ios_match:
+            results["ios"]["app_id"] = ios_match.group(1)
+            results["ios"]["store_url"] = ios_match.group(0)
+        
+        # Android Play Store
+        android_match = re.search(r'play\.google\.com/store/apps/details\?id=([a-zA-Z0-9_.]+)', html_content)
+        if android_match:
+            results["android"]["package"] = android_match.group(1)
+            results["android"]["store_url"] = android_match.group(0)
+        
+        # Smart App Banners
+        if 'apple-itunes-app' in html_content or 'smart-app-banner' in html_content.lower():
+            results["smart_banners"] = True
+        
+        # Deep Links / Universal Links
+        deep_patterns = [
+            r'apple-app-site-association',
+            r'\.well-known/assetlinks\.json',
+            r'intent://[^"\'<>\s]+',
+            r'[a-z]+://[^"\'<>\s]+(?:open|launch|app)'
+        ]
+        for pattern in deep_patterns:
+            matches = re.findall(pattern, html_content, re.I)
+            results["deep_links"].extend(matches[:10])
+        
+        results["has_mobile_app"] = bool(results["ios"] or results["android"])
+        return results
+
+
+class EmailTemplateHarvester:
+    """Extract email-related templates and patterns."""
+    
+    def scan(self, html_content: str, base_url: str) -> dict:
+        """Find email templates and subscription forms."""
+        results = {
+            "newsletter_forms": [],
+            "email_patterns": [],
+            "unsubscribe_links": [],
+            "email_services": []
+        }
+        
+        # Newsletter/subscription forms
+        form_patterns = [
+            r'<form[^>]*(?:newsletter|subscribe|signup|email)[^>]*>.*?</form>',
+            r'<input[^>]*(?:newsletter|subscribe)[^>]*>'
+        ]
+        for pattern in form_patterns:
+            matches = re.findall(pattern, html_content, re.I | re.S)
+            results["newsletter_forms"].extend(matches[:5])
+        
+        # Email service providers
+        services = {
+            "mailchimp": r'mailchimp|mc_embed|list-manage\.com',
+            "sendgrid": r'sendgrid',
+            "mailgun": r'mailgun',
+            "constant_contact": r'constantcontact',
+            "hubspot": r'hubspot|hs-scripts',
+            "klaviyo": r'klaviyo',
+            "convertkit": r'convertkit'
+        }
+        for service, pattern in services.items():
+            if re.search(pattern, html_content, re.I):
+                results["email_services"].append(service)
+        
+        # Unsubscribe links
+        unsub = re.findall(r'href=["\']([^"\']*unsubscribe[^"\']*)["\']', html_content, re.I)
+        results["unsubscribe_links"] = unsub[:10]
+        
+        return results
+
+
+class PrivacyLeakDetector:
+    """Find tracking pixels, analytics, and fingerprinting scripts."""
+    
+    TRACKERS = {
+        "google_analytics": r'google-analytics\.com|gtag|ga\(|_gaq',
+        "facebook_pixel": r'facebook\.com/tr|fbq\(|connect\.facebook\.net',
+        "hotjar": r'hotjar\.com|hjSetting',
+        "mixpanel": r'mixpanel\.com|mixpanel\.track',
+        "segment": r'segment\.com|analytics\.js',
+        "heap": r'heap\.io|heapanalytics',
+        "amplitude": r'amplitude\.com',
+        "fullstory": r'fullstory\.com|FS\.identify',
+        "mouseflow": r'mouseflow\.com',
+        "clarity": r'clarity\.ms',
+        "tiktok_pixel": r'analytics\.tiktok\.com',
+        "linkedin_insight": r'snap\.licdn\.com|linkedin\.com/px',
+    }
+    
+    FINGERPRINTING = [
+        r'fingerprint2?\.js', r'clientjs', r'canvas.*toDataURL',
+        r'webgl.*getParameter', r'AudioContext', r'navigator\.plugins',
+        r'screen\.(width|height|colorDepth)', r'timezone.*offset'
+    ]
+    
+    def scan(self, html_content: str, js_content: str = "") -> dict:
+        """Detect privacy-invasive tracking and fingerprinting."""
+        combined = html_content + js_content
+        
+        trackers_found = []
+        for name, pattern in self.TRACKERS.items():
+            if re.search(pattern, combined, re.I):
+                trackers_found.append(name)
+        
+        fingerprinting = []
+        for pattern in self.FINGERPRINTING:
+            if re.search(pattern, combined, re.I):
+                fingerprinting.append(pattern)
+        
+        # Third-party cookies indicators
+        cookie_domains = re.findall(r'\.set(?:Cookie|Item)\s*\([^)]+\)', combined)
+        
+        return {
+            "trackers": trackers_found,
+            "fingerprinting_signals": len(fingerprinting),
+            "fingerprinting_techniques": fingerprinting[:10],
+            "cookie_operations": len(cookie_domains),
+            "privacy_score": max(0, 100 - len(trackers_found) * 10 - len(fingerprinting) * 5),
+            "risk_level": "high" if len(trackers_found) > 5 else "medium" if len(trackers_found) > 2 else "low"
+        }
+
+
+class DatabaseLeakDetector:
+    """Detect database information in error messages and responses."""
+    
+    PATTERNS = {
+        "mysql_error": r'(mysql_fetch|mysql_query|mysqli_|SQLSTATE\[)',
+        "postgresql_error": r'(pg_query|PG::|PostgreSQL)',
+        "mongodb_error": r'(MongoError|MongoDB|ObjectId\()',
+        "sqlite_error": r'(sqlite3\.|SQLite3::)',
+        "oracle_error": r'(ORA-\d+|Oracle error)',
+        "mssql_error": r'(ODBC SQL Server|Microsoft SQL)',
+        "table_names": r'(?:FROM|INTO|UPDATE|TABLE)\s+[`"\[]?(\w+)[`"\]]?',
+        "column_names": r'(?:column|field)\s+[\'"`](\w+)[\'"`]',
+        "connection_strings": r'(?:host|server|database|user|password)\s*[=:]\s*[\'"]?(\w+)',
+    }
+    
+    def scan(self, content: str, error_pages: list = None) -> dict:
+        """Detect database leaks in content."""
+        leaks = []
+        
+        for leak_type, pattern in self.PATTERNS.items():
+            matches = re.findall(pattern, content, re.I)
+            if matches:
+                leaks.append({
+                    "type": leak_type,
+                    "matches": list(set(matches))[:10],
+                    "severity": "high" if "error" in leak_type or "connection" in leak_type else "medium"
+                })
+        
+        return {
+            "leaks_found": len(leaks),
+            "details": leaks,
+            "database_types": [l["type"].split("_")[0] for l in leaks if "error" in l["type"]],
+            "risk_level": "critical" if any(l["severity"] == "high" for l in leaks) else "low"
+        }
+
+
+class JSDeobfuscationAnalyzer:
+    """Analyze JavaScript for obfuscation patterns indicating malicious code."""
+    
+    OBFUSCATION_PATTERNS = {
+        "eval_usage": r'\beval\s*\(',
+        "base64_decode": r'atob\s*\(|btoa\s*\(',
+        "char_code": r'fromCharCode\s*\(',
+        "hex_encoding": r'\\x[0-9a-f]{2}',
+        "unicode_escape": r'\\u[0-9a-f]{4}',
+        "packed_code": r'eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k',
+        "obfuscator_io": r'_0x[a-f0-9]{4,}',
+        "jsfuck": r'\[\s*!\s*\+\s*\[\s*\]\s*\]',
+        "array_rotation": r'\.push\s*\(\s*\w+\s*\.\s*shift\s*\(\s*\)\s*\)',
+        "string_split": r'\.split\s*\(\s*[\'"][^\'"]+[\'"]\s*\)\s*\.reverse',
+    }
+    
+    def analyze(self, js_content: str) -> dict:
+        """Analyze JavaScript for obfuscation indicators."""
+        findings = []
+        obfuscation_score = 0
+        
+        for name, pattern in self.OBFUSCATION_PATTERNS.items():
+            matches = re.findall(pattern, js_content, re.I)
+            if matches:
+                findings.append({
+                    "technique": name,
+                    "occurrences": len(matches),
+                    "risk": "high" if name in ["eval_usage", "packed_code", "jsfuck"] else "medium"
+                })
+                obfuscation_score += len(matches) * (3 if "high" in str(findings[-1]) else 1)
+        
+        # Check entropy of variable names
+        var_names = re.findall(r'\b(?:var|let|const)\s+(\w+)', js_content)
+        short_vars = sum(1 for v in var_names if len(v) <= 2 or re.match(r'^_0x|^[a-z]{1,2}\d', v))
+        
+        return {
+            "obfuscation_detected": obfuscation_score > 5,
+            "score": min(100, obfuscation_score),
+            "techniques": findings,
+            "suspicious_variables": short_vars,
+            "risk_level": "critical" if obfuscation_score > 20 else "high" if obfuscation_score > 10 else "low"
+        }
+
+
+class BrandAssetExtractor:
+    """Extract branding elements: logos, colors, fonts."""
+    
+    def extract(self, html_content: str, css_content: str = "") -> dict:
+        """Extract brand assets from content."""
+        # Logo detection
+        logos = re.findall(r'(?:src|href)=["\']([^"\']*(?:logo|brand|icon)[^"\']*)["\']', html_content, re.I)
+        
+        # Favicon
+        favicons = re.findall(r'<link[^>]*rel=["\'](?:icon|shortcut icon)["\'][^>]*href=["\']([^"\']+)["\']', html_content, re.I)
+        
+        # Colors from CSS
+        colors = list(set(re.findall(r'#[0-9a-fA-F]{3,6}\b', css_content + html_content)))
+        rgb_colors = re.findall(r'rgba?\s*\([^)]+\)', css_content + html_content)
+        
+        # Fonts
+        fonts = re.findall(r'font-family:\s*([^;}{]+)', css_content + html_content)
+        google_fonts = re.findall(r'fonts\.googleapis\.com/css[^"\']+family=([^&"\']+)', html_content)
+        
+        # Brand name from title/meta
+        title_match = re.search(r'<title>([^<]+)</title>', html_content, re.I)
+        og_site = re.search(r'og:site_name["\'\s]+content=["\']([^"\']+)', html_content, re.I)
+        
+        return {
+            "logos": logos[:10],
+            "favicons": favicons[:5],
+            "colors": colors[:20],
+            "fonts": list(set(fonts))[:10],
+            "google_fonts": google_fonts,
+            "brand_name": og_site.group(1) if og_site else (title_match.group(1) if title_match else None),
+            "asset_count": len(logos) + len(favicons)
+        }
+
+
+class HomoglyphScanner:
+    """Detect typosquatting domains using Unicode homoglyphs."""
+    
+    HOMOGLYPHS = {
+        'a': ['а', 'ɑ', 'α', '@'],
+        'e': ['е', 'ё', 'ε', '3'],
+        'o': ['о', '0', 'ο', 'ө'],
+        'i': ['і', '1', 'l', '|', 'ı'],
+        'c': ['с', 'ç', '¢'],
+        's': ['ѕ', '$', '5'],
+        'p': ['р', 'ρ'],
+        'x': ['х', '×'],
+        'y': ['у', 'ý'],
+        'n': ['п', 'η'],
+        'k': ['к', 'κ'],
+        'h': ['һ', 'н'],
+        'g': ['ɡ', '9'],
+        'b': ['Ь', '6'],
+        'd': ['ԁ', 'ɗ'],
+        'w': ['ω', 'ш'],
+        'm': ['м', 'rn'],
+        't': ['т', '+'],
+    }
+    
+    def scan(self, domain: str) -> dict:
+        """Generate potential typosquatting variants."""
+        base = domain.split('.')[0].lower()
+        variants = []
+        
+        # Homoglyph substitution
+        for i, char in enumerate(base):
+            if char in self.HOMOGLYPHS:
+                for replacement in self.HOMOGLYPHS[char]:
+                    variant = base[:i] + replacement + base[i+1:]
+                    variants.append({"type": "homoglyph", "variant": variant, "original_char": char})
+        
+        # Common typos
+        typos = [
+            base.replace('www', 'ww'), base.replace('www', 'wwww'),
+            base + 's', base[:-1] if len(base) > 3 else base,
+            base[:len(base)//2] + base[len(base)//2] + base[len(base)//2:],  # double letter
+        ]
+        for typo in typos:
+            if typo != base:
+                variants.append({"type": "typo", "variant": typo})
+        
+        # TLD swaps
+        tld_variants = [f"{base}.co", f"{base}.net", f"{base}.org", f"{base}.io", f"{base}.app"]
+        
+        return {
+            "original": domain,
+            "homoglyph_variants": [v for v in variants if v["type"] == "homoglyph"][:20],
+            "typo_variants": [v for v in variants if v["type"] == "typo"][:10],
+            "tld_variants": tld_variants,
+            "total_variants": len(variants) + len(tld_variants)
+        }
+
+
+class GhostAssetFinder:
+    """Find hidden pages not in robots.txt or sitemap."""
+    
+    COMMON_HIDDEN = [
+        "/admin", "/administrator", "/wp-admin", "/login", "/signin",
+        "/dashboard", "/panel", "/console", "/manager", "/cpanel",
+        "/phpmyadmin", "/adminer", "/.git", "/.svn", "/.env",
+        "/api", "/api/v1", "/api/v2", "/graphql", "/rest",
+        "/backup", "/old", "/new", "/test", "/dev", "/staging",
+        "/debug", "/trace", "/status", "/health", "/metrics",
+        "/config", "/settings", "/setup", "/install", "/upgrade",
+        "/.well-known", "/robots.txt", "/sitemap.xml", "/humans.txt"
+    ]
+    
+    def scan(self, base_url: str, session=None) -> dict:
+        """Find hidden/ghost assets."""
+        found = []
+        checked = 0
+        
+        if not session:
+            session = requests.Session()
+            session.headers.update({"User-Agent": "Mozilla/5.0 AEGIS Scanner"})
+        
+        for path in self.COMMON_HIDDEN:
+            try:
+                url = urljoin(base_url, path)
+                resp = session.head(url, timeout=3, allow_redirects=False)
+                checked += 1
+                
+                if resp.status_code in [200, 301, 302, 401, 403]:
+                    found.append({
+                        "path": path,
+                        "status": resp.status_code,
+                        "accessible": resp.status_code == 200,
+                        "protected": resp.status_code in [401, 403]
+                    })
+            except:
+                pass
+        
+        return {
+            "paths_checked": checked,
+            "paths_found": len(found),
+            "accessible": [p for p in found if p["accessible"]],
+            "protected": [p for p in found if p["protected"]],
+            "all_findings": found
+        }
+
+
+class HoneypotDetector:
+    """Detect decoy/honeypot systems."""
+    
+    HONEYPOT_INDICATORS = {
+        "kippo": ["cowrie", "kippo", "SSH-2.0-OpenSSH_5.1p1"],
+        "glastopf": ["glastopf", "phpMyAdmin 2.6.4"],
+        "dionaea": ["dionaea", "Microsoft-IIS/5.0"],
+        "conpot": ["conpot", "Siemens"],
+        "elastichoney": ["elastichoney", "elasticsearch"],
+        "generic": ["honeypot", "tarpit", "decoy", "canary"]
+    }
+    
+    def detect(self, headers: dict, content: str, banner: str = "") -> dict:
+        """Detect honeypot indicators."""
+        findings = []
+        combined = str(headers) + content + banner
+        
+        for honey_type, patterns in self.HONEYPOT_INDICATORS.items():
+            for pattern in patterns:
+                if pattern.lower() in combined.lower():
+                    findings.append({
+                        "type": honey_type,
+                        "indicator": pattern,
+                        "confidence": "high" if honey_type != "generic" else "medium"
+                    })
+        
+        # Behavioral checks
+        behavioral = []
+        if headers.get("Server", "").count("/") > 3:
+            behavioral.append("Unusually detailed server header")
+        if "X-Powered-By" in headers and "honeypot" in str(headers.get("X-Powered-By", "")).lower():
+            behavioral.append("Honeypot signature in headers")
+        
+        return {
+            "is_honeypot": len(findings) > 0,
+            "confidence": "high" if len(findings) > 2 else "medium" if findings else "low",
+            "indicators": findings,
+            "behavioral_signals": behavioral
+        }
+
+
+class GeoBlockDetector:
+    """Detect geographic blocking and CDN behavior."""
+    
+    def detect(self, headers: dict, response_code: int, content: str = "") -> dict:
+        """Detect geo-blocking indicators."""
+        indicators = []
+        
+        # CDN detection
+        cdn_headers = {
+            "cloudflare": ["cf-ray", "cf-cache-status"],
+            "akamai": ["x-akamai-transformed", "akamai-origin-hop"],
+            "fastly": ["x-served-by", "x-cache"],
+            "aws_cloudfront": ["x-amz-cf-id", "x-amz-cf-pop"],
+            "azure_cdn": ["x-azure-ref"],
+        }
+        
+        detected_cdn = None
+        for cdn, cdn_hdrs in cdn_headers.items():
+            if any(h.lower() in [k.lower() for k in headers.keys()] for h in cdn_hdrs):
+                detected_cdn = cdn
+                break
+        
+        # Geo-block indicators
+        geo_patterns = [
+            r'not available in your (?:country|region)',
+            r'access denied.*(?:location|geographic)',
+            r'blocked.*(?:country|territory)',
+            r'451.*unavailable.*legal',
+            r'geoblocking|geoblock|geo-restrict'
+        ]
+        
+        geo_blocked = False
+        for pattern in geo_patterns:
+            if re.search(pattern, content, re.I):
+                geo_blocked = True
+                indicators.append(f"Pattern match: {pattern}")
+        
+        if response_code == 451:
+            geo_blocked = True
+            indicators.append("HTTP 451 Unavailable For Legal Reasons")
+        
+        return {
+            "geo_blocked": geo_blocked,
+            "cdn_detected": detected_cdn,
+            "indicators": indicators,
+            "response_code": response_code
+        }
+
+
+class WebsiteDNAGenerator:
+    """Generate unique fingerprint for website identification."""
+    
+    def generate(self, html: str, headers: dict, tech_stack: list = None) -> dict:
+        """Generate website DNA fingerprint."""
+        # HTML structure fingerprint
+        tag_counts = {}
+        for tag in re.findall(r'<(\w+)', html):
+            tag_counts[tag.lower()] = tag_counts.get(tag.lower(), 0) + 1
+        
+        # Header fingerprint
+        header_sig = sorted([k.lower() for k in headers.keys()])
+        
+        # Generate hash
+        dna_string = f"{sorted(tag_counts.items())}{header_sig}{tech_stack or []}"
+        dna_hash = hashlib.sha256(dna_string.encode()).hexdigest()[:32]
+        
+        # Structural analysis
+        structure = {
+            "total_tags": sum(tag_counts.values()),
+            "unique_tags": len(tag_counts),
+            "top_tags": sorted(tag_counts.items(), key=lambda x: -x[1])[:10],
+            "has_forms": tag_counts.get("form", 0) > 0,
+            "has_scripts": tag_counts.get("script", 0) > 0,
+            "script_count": tag_counts.get("script", 0),
+        }
+        
+        return {
+            "dna_hash": dna_hash,
+            "structure": structure,
+            "header_signature": header_sig[:15],
+            "tech_signature": tech_stack[:10] if tech_stack else []
+        }
+
+
+class ComplianceChecker:
+    """Quick GDPR, CCPA, PCI-DSS compliance audit."""
+    
+    CHECKS = {
+        "gdpr": {
+            "cookie_consent": r'cookie.*(?:consent|notice|banner|policy)',
+            "privacy_policy": r'privacy.*policy|datenschutz',
+            "data_subject_rights": r'(?:access|delete|port).*(?:data|rights)',
+            "dpo_contact": r'data.*protection.*officer|dpo@',
+        },
+        "ccpa": {
+            "do_not_sell": r'do.*not.*sell.*(?:personal|information)',
+            "ca_privacy": r'california.*privacy|ccpa',
+            "opt_out": r'opt.*out.*(?:sale|sharing)',
+        },
+        "pci_dss": {
+            "secure_payment": r'(?:secure|encrypted).*payment',
+            "https": r'^https://',
+            "card_logos": r'visa|mastercard|amex|discover',
+        }
+    }
+    
+    def audit(self, html: str, url: str, headers: dict) -> dict:
+        """Perform compliance audit."""
+        results = {}
+        
+        for standard, checks in self.CHECKS.items():
+            passed = 0
+            details = []
+            for check_name, pattern in checks.items():
+                found = bool(re.search(pattern, html + url, re.I))
+                details.append({"check": check_name, "passed": found})
+                if found:
+                    passed += 1
+            
+            results[standard] = {
+                "score": int((passed / len(checks)) * 100),
+                "checks_passed": passed,
+                "total_checks": len(checks),
+                "details": details
+            }
+        
+        # Security headers check
+        security_headers = ["strict-transport-security", "content-security-policy", "x-frame-options"]
+        security_score = sum(1 for h in security_headers if h in [k.lower() for k in headers.keys()])
+        
+        return {
+            "compliance": results,
+            "security_headers_score": int((security_score / len(security_headers)) * 100),
+            "overall_score": sum(r["score"] for r in results.values()) // len(results)
+        }
+
+
+class TimingAnalyzer:
+    """Analyze response timing patterns for fingerprinting."""
+    
+    def analyze(self, url: str, samples: int = 5) -> dict:
+        """Measure response timing patterns."""
+        timings = []
+        
+        for _ in range(samples):
+            try:
+                start = time.time()
+                resp = requests.head(url, timeout=10)
+                elapsed = (time.time() - start) * 1000  # ms
+                timings.append({
+                    "latency_ms": round(elapsed, 2),
+                    "status": resp.status_code
+                })
+            except:
+                pass
+        
+        if not timings:
+            return {"error": "No successful samples"}
+        
+        latencies = [t["latency_ms"] for t in timings]
+        
+        return {
+            "samples": len(timings),
+            "min_ms": min(latencies),
+            "max_ms": max(latencies),
+            "avg_ms": round(sum(latencies) / len(latencies), 2),
+            "variance": round(max(latencies) - min(latencies), 2),
+            "consistent": (max(latencies) - min(latencies)) < 100,
+            "timings": timings
+        }
+
+
+class APIEndpointFuzzer:
+    """Discover API endpoints from JavaScript analysis."""
+    
+    PATTERNS = [
+        r'["\']/(api|rest|graphql|v[0-9]+)/[^"\']+["\']',
+        r'fetch\s*\(\s*["\']([^"\']+)["\']',
+        r'axios\.[a-z]+\s*\(\s*["\']([^"\']+)["\']',
+        r'\.ajax\s*\(\s*{\s*url\s*:\s*["\']([^"\']+)["\']',
+        r'endpoint[s]?\s*[=:]\s*["\']([^"\']+)["\']',
+    ]
+    
+    def discover(self, js_content: str, base_url: str) -> dict:
+        """Discover API endpoints from JS code."""
+        endpoints = set()
+        
+        for pattern in self.PATTERNS:
+            matches = re.findall(pattern, js_content, re.I)
+            for match in matches:
+                if isinstance(match, tuple):
+                    match = match[0]
+                if match.startswith('/') or match.startswith('http'):
+                    endpoints.add(match)
+        
+        # Categorize
+        categorized = {"rest": [], "graphql": [], "websocket": [], "other": []}
+        for ep in endpoints:
+            if "graphql" in ep.lower():
+                categorized["graphql"].append(ep)
+            elif "ws://" in ep or "wss://" in ep:
+                categorized["websocket"].append(ep)
+            elif "/api" in ep or "/v1" in ep or "/v2" in ep:
+                categorized["rest"].append(ep)
+            else:
+                categorized["other"].append(ep)
+        
+        return {
+            "total_found": len(endpoints),
+            "endpoints": list(endpoints)[:50],
+            "categorized": categorized
+        }
+
+
+class LinkGraphBuilder:
+    """Build network graph of all internal and external links."""
+    
+    def build(self, html: str, base_url: str) -> dict:
+        """Build link graph from HTML."""
+        internal = set()
+        external = set()
+        parsed_base = urlparse(base_url)
+        
+        links = re.findall(r'href=["\']([^"\'#]+)["\']', html, re.I)
+        
+        for link in links:
+            if link.startswith("javascript:") or link.startswith("mailto:"):
+                continue
+            
+            full_url = urljoin(base_url, link)
+            parsed = urlparse(full_url)
+            
+            if parsed.netloc == parsed_base.netloc:
+                internal.add(parsed.path or "/")
+            elif parsed.netloc:
+                external.add(parsed.netloc)
+        
+        return {
+            "internal_links": list(internal)[:100],
+            "external_domains": list(external)[:50],
+            "internal_count": len(internal),
+            "external_count": len(external),
+            "link_ratio": round(len(external) / max(len(internal), 1), 2)
+        }
+
+
+class SubdomainClusterer:
+    """Cluster subdomains by similarity and purpose."""
+    
+    CATEGORIES = {
+        "mail": ["mail", "smtp", "imap", "pop", "mx", "email"],
+        "api": ["api", "rest", "graphql", "gateway", "ws"],
+        "dev": ["dev", "staging", "test", "qa", "uat", "sandbox"],
+        "cdn": ["cdn", "static", "assets", "media", "img", "images"],
+        "admin": ["admin", "panel", "dashboard", "manage", "cms"],
+        "auth": ["auth", "login", "sso", "oauth", "id", "identity"],
+        "docs": ["docs", "help", "support", "wiki", "kb"],
+        "shop": ["shop", "store", "cart", "checkout", "pay"],
+    }
+    
+    def cluster(self, subdomains: list) -> dict:
+        """Cluster subdomains by purpose."""
+        clusters = {cat: [] for cat in self.CATEGORIES}
+        clusters["other"] = []
+        
+        for sub in subdomains:
+            categorized = False
+            sub_lower = sub.lower()
+            for category, keywords in self.CATEGORIES.items():
+                if any(kw in sub_lower for kw in keywords):
+                    clusters[category].append(sub)
+                    categorized = True
+                    break
+            if not categorized:
+                clusters["other"].append(sub)
+        
+        return {
+            "clusters": {k: v for k, v in clusters.items() if v},
+            "summary": {k: len(v) for k, v in clusters.items() if v},
+            "total": len(subdomains)
+        }
+
+
+class WebsiteValueEstimator:
+    """Estimate website metrics and value indicators."""
+    
+    def estimate(self, html: str, headers: dict, tech_stack: list = None) -> dict:
+        """Estimate website value indicators."""
+        indicators = {}
+        
+        # Content richness
+        word_count = len(re.findall(r'\b\w+\b', re.sub(r'<[^>]+>', '', html)))
+        indicators["content_words"] = word_count
+        
+        # Interactivity
+        form_count = len(re.findall(r'<form', html, re.I))
+        script_count = len(re.findall(r'<script', html, re.I))
+        indicators["forms"] = form_count
+        indicators["scripts"] = script_count
+        
+        # Social presence
+        social = ["facebook", "twitter", "linkedin", "instagram", "youtube", "tiktok"]
+        social_found = [s for s in social if s in html.lower()]
+        indicators["social_links"] = social_found
+        
+        # Tech sophistication
+        modern_tech = ["react", "vue", "angular", "next", "nuxt", "svelte"]
+        tech_score = sum(1 for t in modern_tech if t in str(tech_stack).lower()) if tech_stack else 0
+        indicators["tech_score"] = tech_score
+        
+        # Estimate complexity score
+        complexity = min(100, (word_count // 100) + (form_count * 5) + (script_count * 2) + (tech_score * 10))
+        
+        return {
+            "indicators": indicators,
+            "complexity_score": complexity,
+            "category": "enterprise" if complexity > 70 else "business" if complexity > 40 else "basic"
+        }
+
+
+class VulnerabilityPredictor:
+    """Predict potential vulnerabilities from tech stack."""
+    
+    KNOWN_ISSUES = {
+        "wordpress": ["CVE plugin vulns", "XML-RPC attacks", "user enumeration"],
+        "drupal": ["Drupalgeddon variants", "serialization issues"],
+        "joomla": ["SQL injection history", "component vulnerabilities"],
+        "php": ["type juggling", "deserialization", "file inclusion"],
+        "apache": ["path traversal", "mod_cgi issues"],
+        "nginx": ["misconfig issues", "buffer overflow history"],
+        "jquery": ["XSS in older versions", "prototype pollution"],
+        "react": ["SSR XSS", "dangerouslySetInnerHTML misuse"],
+    }
+    
+    def predict(self, tech_stack: list) -> dict:
+        """Predict vulnerabilities based on tech stack."""
+        predictions = []
+        
+        for tech in tech_stack:
+            tech_lower = tech.lower().split()[0]
+            if tech_lower in self.KNOWN_ISSUES:
+                predictions.append({
+                    "technology": tech,
+                    "potential_issues": self.KNOWN_ISSUES[tech_lower],
+                    "recommendation": f"Keep {tech} updated and review security advisories"
+                })
+        
+        return {
+            "predictions": predictions,
+            "risk_technologies": len(predictions),
+            "recommendation": "Regular security audits recommended" if predictions else "No high-risk technologies detected"
+        }
+
+
+class CookieConsentAnalyzer:
+    """Analyze cookie consent banners and compliance."""
+    
+    def analyze(self, html: str) -> dict:
+        """Analyze cookie consent implementation."""
+        indicators = {
+            "has_banner": False,
+            "consent_types": [],
+            "reject_option": False,
+            "granular_control": False,
+            "consent_managers": []
+        }
+        
+        # Popular consent managers
+        managers = {
+            "cookiebot": r'cookiebot|consentmanager',
+            "onetrust": r'onetrust|optanon',
+            "trustarc": r'trustarc|consent\.trustarc',
+            "quantcast": r'quantcast.*choice',
+            "usercentrics": r'usercentrics',
+            "iubenda": r'iubenda',
+        }
+        
+        for name, pattern in managers.items():
+            if re.search(pattern, html, re.I):
+                indicators["consent_managers"].append(name)
+                indicators["has_banner"] = True
+        
+        # Check for reject option
+        if re.search(r'reject.*(?:all|cookies)|decline|ablehnen', html, re.I):
+            indicators["reject_option"] = True
+        
+        # Check granular control
+        if re.search(r'(?:necessary|functional|analytics|marketing).*(?:cookie|consent)', html, re.I):
+            indicators["granular_control"] = True
+        
+        # Compliance score
+        score = 0
+        if indicators["has_banner"]: score += 30
+        if indicators["reject_option"]: score += 30
+        if indicators["granular_control"]: score += 40
+        
+        indicators["compliance_score"] = score
+        
+        return indicators
+
+
+# Initialize v5.0 feature instances
+crypto_scanner = CryptoAddressScanner()
+media_scanner = MediaAssetScanner()
+mobile_detector = MobileAppDetector()
+email_harvester = EmailTemplateHarvester()
+privacy_detector = PrivacyLeakDetector()
+db_leak_detector = DatabaseLeakDetector()
+js_deobfuscation = JSDeobfuscationAnalyzer()
+brand_extractor = BrandAssetExtractor()
+homoglyph_scanner = HomoglyphScanner()
+ghost_finder = GhostAssetFinder()
+honeypot_detector = HoneypotDetector()
+geo_block_detector = GeoBlockDetector()
+website_dna = WebsiteDNAGenerator()
+compliance_checker = ComplianceChecker()
+timing_analyzer = TimingAnalyzer()
+api_fuzzer = APIEndpointFuzzer()
+link_graph = LinkGraphBuilder()
+subdomain_clusterer = SubdomainClusterer()
+value_estimator = WebsiteValueEstimator()
+vuln_predictor = VulnerabilityPredictor()
+cookie_analyzer = CookieConsentAnalyzer()
+
+
+# ============================================================================
+# AEGIS v6.0 - SOCMINT & RANSOMWARE INTELLIGENCE
+# ============================================================================
+
+class SocialMediaIntel:
+    """Find social media presence across 50+ platforms worldwide."""
+    
+    # Platform URL patterns - {username} will be replaced
+    PLATFORMS = {
+        # Major Global
+        "twitter": {"url": "https://twitter.com/{q}", "icon": "fa-twitter"},
+        "facebook": {"url": "https://facebook.com/{q}", "icon": "fa-facebook"},
+        "instagram": {"url": "https://instagram.com/{q}", "icon": "fa-instagram"},
+        "linkedin": {"url": "https://linkedin.com/company/{q}", "icon": "fa-linkedin"},
+        "youtube": {"url": "https://youtube.com/@{q}", "icon": "fa-youtube"},
+        "tiktok": {"url": "https://tiktok.com/@{q}", "icon": "fa-tiktok"},
+        "pinterest": {"url": "https://pinterest.com/{q}", "icon": "fa-pinterest"},
+        "reddit": {"url": "https://reddit.com/user/{q}", "icon": "fa-reddit"},
+        "tumblr": {"url": "https://{q}.tumblr.com", "icon": "fa-tumblr"},
+        
+        # Developer/Tech
+        "github": {"url": "https://github.com/{q}", "icon": "fa-github"},
+        "gitlab": {"url": "https://gitlab.com/{q}", "icon": "fa-gitlab"},
+        "bitbucket": {"url": "https://bitbucket.org/{q}", "icon": "fa-bitbucket"},
+        "stackoverflow": {"url": "https://stackoverflow.com/users/{q}", "icon": "fa-stack-overflow"},
+        "hackernews": {"url": "https://news.ycombinator.com/user?id={q}", "icon": "fa-y-combinator"},
+        "dev_to": {"url": "https://dev.to/{q}", "icon": "fa-dev"},
+        "medium": {"url": "https://medium.com/@{q}", "icon": "fa-medium"},
+        "hashnode": {"url": "https://hashnode.com/@{q}", "icon": "fa-h"},
+        "codepen": {"url": "https://codepen.io/{q}", "icon": "fa-codepen"},
+        "dribbble": {"url": "https://dribbble.com/{q}", "icon": "fa-dribbble"},
+        "behance": {"url": "https://behance.net/{q}", "icon": "fa-behance"},
+        
+        # Messaging/Community
+        "telegram": {"url": "https://t.me/{q}", "icon": "fa-telegram"},
+        "discord": {"url": "https://discord.com/users/{q}", "icon": "fa-discord"},
+        "slack": {"url": "https://{q}.slack.com", "icon": "fa-slack"},
+        "twitch": {"url": "https://twitch.tv/{q}", "icon": "fa-twitch"},
+        
+        # Regional Platforms
+        "vk": {"url": "https://vk.com/{q}", "icon": "fa-vk"},
+        "weibo": {"url": "https://weibo.com/{q}", "icon": "fa-weibo"},
+        "qq": {"url": "https://user.qzone.qq.com/{q}", "icon": "fa-qq"},
+        "line": {"url": "https://line.me/R/ti/p/{q}", "icon": "fa-line"},
+        
+        # Professional
+        "angellist": {"url": "https://angel.co/u/{q}", "icon": "fa-angellist"},
+        "crunchbase": {"url": "https://crunchbase.com/organization/{q}", "icon": "fa-c"},
+        "producthunt": {"url": "https://producthunt.com/@{q}", "icon": "fa-product-hunt"},
+        
+        # Other
+        "spotify": {"url": "https://open.spotify.com/user/{q}", "icon": "fa-spotify"},
+        "soundcloud": {"url": "https://soundcloud.com/{q}", "icon": "fa-soundcloud"},
+        "flickr": {"url": "https://flickr.com/people/{q}", "icon": "fa-flickr"},
+        "500px": {"url": "https://500px.com/{q}", "icon": "fa-500px"},
+        "mastodon": {"url": "https://mastodon.social/@{q}", "icon": "fa-mastodon"},
+        "threads": {"url": "https://threads.net/@{q}", "icon": "fa-at"},
+        "bluesky": {"url": "https://bsky.app/profile/{q}", "icon": "fa-cloud"},
+        "keybase": {"url": "https://keybase.io/{q}", "icon": "fa-key"},
+        "gravatar": {"url": "https://gravatar.com/{q}", "icon": "fa-g"},
+        "about_me": {"url": "https://about.me/{q}", "icon": "fa-user"},
+        "linktree": {"url": "https://linktr.ee/{q}", "icon": "fa-tree"},
+        "patreon": {"url": "https://patreon.com/{q}", "icon": "fa-patreon"},
+        "ko_fi": {"url": "https://ko-fi.com/{q}", "icon": "fa-coffee"},
+        "buymeacoffee": {"url": "https://buymeacoffee.com/{q}", "icon": "fa-mug-hot"},
+    }
+    
+    # Social link patterns to extract from HTML
+    LINK_PATTERNS = [
+        (r'(?:twitter|x)\.com/([a-zA-Z0-9_]+)', "twitter"),
+        (r'facebook\.com/([a-zA-Z0-9.]+)', "facebook"),
+        (r'instagram\.com/([a-zA-Z0-9_.]+)', "instagram"),
+        (r'linkedin\.com/(?:in|company)/([a-zA-Z0-9-]+)', "linkedin"),
+        (r'github\.com/([a-zA-Z0-9-]+)', "github"),
+        (r'youtube\.com/(?:@|c/|channel/)([a-zA-Z0-9_-]+)', "youtube"),
+        (r't\.me/([a-zA-Z0-9_]+)', "telegram"),
+        (r'discord\.gg/([a-zA-Z0-9]+)', "discord"),
+        (r'tiktok\.com/@([a-zA-Z0-9_.]+)', "tiktok"),
+        (r'medium\.com/@([a-zA-Z0-9_]+)', "medium"),
+        (r'reddit\.com/(?:r|u|user)/([a-zA-Z0-9_]+)', "reddit"),
+    ]
+    
+    def find_profiles(self, query: str, check_exists: bool = False) -> dict:
+        """Generate potential social media profile URLs."""
+        # Clean query
+        clean_query = re.sub(r'[^a-zA-Z0-9_-]', '', query.lower())
+        
+        profiles = []
+        for platform, info in self.PLATFORMS.items():
+            url = info["url"].replace("{q}", clean_query)
+            profile = {
+                "platform": platform,
+                "url": url,
+                "icon": info.get("icon", "fa-globe"),
+                "exists": None
+            }
+            
+            if check_exists:
+                try:
+                    resp = requests.head(url, timeout=3, allow_redirects=True)
+                    profile["exists"] = resp.status_code == 200
+                except:
+                    profile["exists"] = None
+            
+            profiles.append(profile)
+        
+        return {
+            "query": query,
+            "clean_query": clean_query,
+            "total_platforms": len(profiles),
+            "profiles": profiles
+        }
+    
+    def extract_from_html(self, html: str) -> dict:
+        """Extract social media links from HTML content."""
+        found = {}
+        
+        for pattern, platform in self.LINK_PATTERNS:
+            matches = re.findall(pattern, html, re.I)
+            if matches:
+                # Deduplicate
+                unique = list(set(matches))
+                if platform in found:
+                    found[platform].extend(unique)
+                else:
+                    found[platform] = unique
+        
+        # Also extract generic social links
+        social_links = re.findall(
+            r'href=["\']([^"\']*(?:facebook|twitter|instagram|linkedin|github|youtube|tiktok)[^"\']*)["\']',
+            html, re.I
+        )
+        
+        return {
+            "platforms_found": list(found.keys()),
+            "profiles": found,
+            "raw_links": list(set(social_links))[:20],
+            "total_found": sum(len(v) for v in found.values())
+        }
+    
+    def full_scan(self, query: str, html: str = "") -> dict:
+        """Complete social media intelligence scan."""
+        # Generate potential profiles
+        potential = self.find_profiles(query, check_exists=False)
+        
+        # Extract from HTML if provided
+        extracted = self.extract_from_html(html) if html else {"profiles": {}, "total_found": 0}
+        
+        return {
+            "query": query,
+            "potential_profiles": potential["profiles"][:30],  # Limit output
+            "extracted_profiles": extracted["profiles"],
+            "total_potential": potential["total_platforms"],
+            "total_extracted": extracted["total_found"]
+        }
+
+
+class RansomwareMonitor:
+    """Monitor ransomware groups and check victim lists via public APIs."""
+    
+    API_ENDPOINTS = {
+        "ransomware_live": {
+            "victims": "https://api.ransomware.live/victims",
+            "groups": "https://api.ransomware.live/groups",
+            "recent": "https://api.ransomware.live/recentvictims"
+        },
+        "ransomlook": {
+            "groups": "https://www.ransomlook.io/api/groups",
+            "recent": "https://www.ransomlook.io/api/recent"
+        }
+    }
+    
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "AEGIS Security Scanner",
+            "Accept": "application/json"
+        })
+        self._cache = {}
+        self._cache_time = {}
+    
+    def _get_cached(self, key: str, url: str, ttl: int = 300) -> dict:
+        """Get data with caching."""
+        now = time.time()
+        if key in self._cache and (now - self._cache_time.get(key, 0)) < ttl:
+            return self._cache[key]
+        
+        try:
+            resp = self.session.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                self._cache[key] = data
+                self._cache_time[key] = now
+                return data
+        except Exception as e:
+            return {"error": str(e)}
+        
+        return {}
+    
+    def check_victim(self, domain: str) -> dict:
+        """Check if domain appears in ransomware victim lists."""
+        results = {
+            "domain": domain,
+            "found": False,
+            "matches": [],
+            "sources_checked": []
+        }
+        
+        # Clean domain
+        clean_domain = domain.lower().replace("www.", "").split("/")[0]
+        
+        # Check ransomware.live
+        victims = self._get_cached(
+            "rl_victims",
+            self.API_ENDPOINTS["ransomware_live"]["victims"]
+        )
+        results["sources_checked"].append("ransomware.live")
+        
+        if isinstance(victims, list):
+            for victim in victims:
+                victim_domain = str(victim.get("website", "") or victim.get("domain", "")).lower()
+                if clean_domain in victim_domain or victim_domain in clean_domain:
+                    results["found"] = True
+                    results["matches"].append({
+                        "source": "ransomware.live",
+                        "group": victim.get("group_name", "Unknown"),
+                        "date": victim.get("discovered", victim.get("date", "Unknown")),
+                        "country": victim.get("country", "Unknown"),
+                        "website": victim_domain
+                    })
+        
+        return results
+    
+    def get_active_groups(self) -> dict:
+        """Get list of active ransomware groups."""
+        groups = []
+        
+        # From ransomware.live
+        rl_groups = self._get_cached(
+            "rl_groups",
+            self.API_ENDPOINTS["ransomware_live"]["groups"]
+        )
+        
+        if isinstance(rl_groups, list):
+            for g in rl_groups[:50]:  # Limit
+                groups.append({
+                    "name": g.get("name", "Unknown"),
+                    "url": g.get("url", ""),
+                    "status": "active" if g.get("active") else "inactive",
+                    "source": "ransomware.live"
+                })
+        
+        # From ransomlook.io
+        rsl_groups = self._get_cached(
+            "rsl_groups", 
+            self.API_ENDPOINTS["ransomlook"]["groups"]
+        )
+        
+        if isinstance(rsl_groups, list):
+            for g in rsl_groups[:50]:
+                if isinstance(g, dict):
+                    groups.append({
+                        "name": g.get("name", str(g)),
+                        "source": "ransomlook.io"
+                    })
+        
+        return {
+            "total_groups": len(groups),
+            "groups": groups,
+            "sources": ["ransomware.live", "ransomlook.io"]
+        }
+    
+    def get_recent_victims(self, limit: int = 20) -> dict:
+        """Get recent ransomware victims."""
+        victims = []
+        
+        # From ransomware.live
+        recent = self._get_cached(
+            "rl_recent",
+            self.API_ENDPOINTS["ransomware_live"]["recent"]
+        )
+        
+        if isinstance(recent, list):
+            for v in recent[:limit]:
+                victims.append({
+                    "name": v.get("victim", v.get("name", "Unknown")),
+                    "group": v.get("group_name", v.get("group", "Unknown")),
+                    "date": v.get("discovered", v.get("date", "Unknown")),
+                    "country": v.get("country", ""),
+                    "website": v.get("website", v.get("domain", "")),
+                    "source": "ransomware.live"
+                })
+        
+        return {
+            "total": len(victims),
+            "victims": victims[:limit],
+            "retrieved_at": datetime.now().isoformat()
+        }
+    
+    def full_scan(self, domain: str) -> dict:
+        """Complete ransomware intelligence scan for domain."""
+        victim_check = self.check_victim(domain)
+        groups = self.get_active_groups()
+        recent = self.get_recent_victims(10)
+        
+        return {
+            "domain": domain,
+            "victim_status": victim_check,
+            "active_groups_count": groups["total_groups"],
+            "recent_victims_sample": recent["victims"][:5],
+            "threat_level": "critical" if victim_check["found"] else "unknown",
+            "recommendation": "IMMEDIATE ACTION REQUIRED - Domain found in leak site!" if victim_check["found"] else "No matches found in current databases"
+        }
+
+
+# Initialize v6.0 feature instances
+social_intel = SocialMediaIntel()
+ransomware_monitor = RansomwareMonitor()
+
 
 SECURITY_TXT_PATHS = [
     "/.well-known/security.txt",
@@ -4394,6 +9548,277 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
     current_scheme = parsed_url.scheme or "http"
     run_mod("owasp_top10", "owasp_top10" in selected_services, owasp_top10_audit, results, current_scheme)
 
+    # ============ ENHANCED MODULES (v3.0) ============
+    
+    # Extended OSINT Modules
+    run_mod("hunter_io", "hunter_io" in selected_services and domain, hunter_io_lookup, domain)
+    run_mod("censys", "censys" in selected_services and domain, censys_search, domain)
+    run_mod("github_dorks", "github_dorks" in selected_services and domain, github_dork_search, domain)
+    run_mod("fullhunt", "fullhunt" in selected_services and domain, fullhunt_lookup, domain)
+    run_mod("binaryedge", "binaryedge" in selected_services and domain, binaryedge_lookup, domain)
+    run_mod("builtwith", "builtwith" in selected_services and domain, builtwith_lookup, domain)
+    
+    # Enhanced Vulnerability Correlation
+    if "enhanced_cve" in selected_services and results.get("tech"):
+        run_mod("enhanced_cve", True, enhanced_cve_lookup, results.get("tech", {}).get("stack", []))
+    
+    # Certificate Monitoring
+    run_mod("cert_monitor", "cert_monitor" in selected_services and domain, cert_expiry_monitor, domain)
+    
+    # Active Security Testing (requires explicit opt-in for semi/active modes)
+    if mode in ["semi", "active"]:
+        run_mod("auth_weakness", "auth_test" in selected_services, auth_weakness_scan, url_norm)
+        run_mod("api_security", "api_security" in selected_services, api_security_scan, url_norm)
+        run_mod("xxe_detection", "xxe_test" in selected_services, xxe_detection, url_norm)
+        run_mod("ssrf_detection", "ssrf_test" in selected_services, ssrf_detection, url_norm)
+        run_mod("open_redirect", "redirect_test" in selected_services, open_redirect_scan, url_norm)
+        run_mod("header_injection", "header_test" in selected_services, header_injection_test, url_norm)
+    
+    # Credential Leak Checking for discovered emails
+    if crawler_emails and "leakcheck" in selected_services:
+        for email in crawler_emails[:5]:  # Limit to avoid rate limits
+            email_key = f"leakcheck_{email.replace('@', '_at_').replace('.', '_')}"
+            run_mod(email_key, True, leakcheck_lookup, email)
+    
+    # ============ INNOVATIVE ANALYSIS FEATURES (v4.0) ============
+    
+    # Entropy-based secret scanner (local, no API)
+    run_mod("entropy_scan", "entropy_scan" in selected_services, entropy_scanner.scan_url, url_norm)
+    
+    # Recon wordlist generator (local, no API)
+    run_mod("wordlist_gen", "wordlist_gen" in selected_services, wordlist_generator.generate_wordlist, url_norm)
+    
+    # Password policy detector (local, no API)
+    run_mod("password_policy", "password_policy" in selected_services, password_detector.estimate_policy, url_norm)
+    
+    # Technology timeline via Archive.org (no API key needed)
+    run_mod("tech_timeline", "tech_timeline" in selected_services and domain, tech_timeline.build_timeline, domain)
+    
+    # Attack surface mapping (post-processing of existing results)
+    if "attack_map" in selected_services:
+        # Need to run this after other modules have populated results
+        pass  # Will be processed after summary
+    
+    # Report narrative generation (post-processing)
+    if "report_narrative" in selected_services:
+        # Will be processed after summary
+        pass
+    
+    # ============ ADVANCED FEATURES v5.0 ============
+    # Get HTML content for content-based scanners
+    html_content = results.get("crawler", {}).get("html", "") or ""
+    js_content = results.get("js_secrets", {}).get("raw_js", "") or ""
+    response_headers = results.get("headers", {}).get("headers", {}) or {}
+    tech_stack = results.get("tech", {}).get("stack", []) or []
+    
+    # Crypto Address Scanner
+    if "crypto_scan" in selected_services:
+        try:
+            results["crypto_scan"] = crypto_scanner.scan(html_content + js_content)
+        except Exception as e:
+            results["crypto_scan"] = {"error": str(e)}
+    
+    # Privacy Leak Detector
+    if "privacy_detect" in selected_services:
+        try:
+            results["privacy_detect"] = privacy_detector.scan(html_content, js_content)
+        except Exception as e:
+            results["privacy_detect"] = {"error": str(e)}
+    
+    # Database Leak Detector
+    if "db_leak" in selected_services:
+        try:
+            results["db_leak"] = db_leak_detector.scan(html_content)
+        except Exception as e:
+            results["db_leak"] = {"error": str(e)}
+    
+    # JS Deobfuscation Analyzer
+    if "js_deobfuscate" in selected_services:
+        try:
+            results["js_deobfuscate"] = js_deobfuscation.analyze(js_content)
+        except Exception as e:
+            results["js_deobfuscate"] = {"error": str(e)}
+    
+    # Homoglyph Scanner
+    if "homoglyph_scan" in selected_services and domain:
+        try:
+            results["homoglyph_scan"] = homoglyph_scanner.scan(domain)
+        except Exception as e:
+            results["homoglyph_scan"] = {"error": str(e)}
+    
+    # Ghost Asset Finder
+    if "ghost_finder" in selected_services:
+        try:
+            results["ghost_finder"] = ghost_finder.scan(url_norm)
+        except Exception as e:
+            results["ghost_finder"] = {"error": str(e)}
+    
+    # Honeypot Detector
+    if "honeypot_detect" in selected_services:
+        try:
+            results["honeypot_detect"] = honeypot_detector.detect(response_headers, html_content)
+        except Exception as e:
+            results["honeypot_detect"] = {"error": str(e)}
+    
+    # Geo Block Detector
+    if "geo_block" in selected_services:
+        try:
+            status_code = results.get("headers", {}).get("status_code", 200)
+            results["geo_block"] = geo_block_detector.detect(response_headers, status_code, html_content)
+        except Exception as e:
+            results["geo_block"] = {"error": str(e)}
+    
+    # Compliance Checker
+    if "compliance_check" in selected_services:
+        try:
+            results["compliance_check"] = compliance_checker.audit(html_content, url_norm, response_headers)
+        except Exception as e:
+            results["compliance_check"] = {"error": str(e)}
+    
+    # Vulnerability Predictor
+    if "vuln_predict" in selected_services:
+        try:
+            results["vuln_predict"] = vuln_predictor.predict(tech_stack)
+        except Exception as e:
+            results["vuln_predict"] = {"error": str(e)}
+    
+    # Media Asset Scanner
+    if "media_scan" in selected_services:
+        try:
+            results["media_scan"] = media_scanner.scan(html_content, url_norm)
+        except Exception as e:
+            results["media_scan"] = {"error": str(e)}
+    
+    # Mobile App Detector
+    if "mobile_detect" in selected_services:
+        try:
+            results["mobile_detect"] = mobile_detector.scan(html_content, response_headers)
+        except Exception as e:
+            results["mobile_detect"] = {"error": str(e)}
+    
+    # Email Template Harvester
+    if "email_harvest" in selected_services:
+        try:
+            results["email_harvest"] = email_harvester.scan(html_content, url_norm)
+        except Exception as e:
+            results["email_harvest"] = {"error": str(e)}
+    
+    # Brand Asset Extractor
+    if "brand_extract" in selected_services:
+        try:
+            css_content = ""  # Could extract from stylesheets if needed
+            results["brand_extract"] = brand_extractor.extract(html_content, css_content)
+        except Exception as e:
+            results["brand_extract"] = {"error": str(e)}
+    
+    # Website DNA Generator
+    if "website_dna" in selected_services:
+        try:
+            results["website_dna"] = website_dna.generate(html_content, response_headers, tech_stack)
+        except Exception as e:
+            results["website_dna"] = {"error": str(e)}
+    
+    # Timing Analyzer
+    if "timing_analysis" in selected_services:
+        try:
+            results["timing_analysis"] = timing_analyzer.analyze(url_norm, samples=3)
+        except Exception as e:
+            results["timing_analysis"] = {"error": str(e)}
+    
+    # API Endpoint Fuzzer
+    if "api_fuzzer" in selected_services:
+        try:
+            results["api_fuzzer"] = api_fuzzer.discover(js_content, url_norm)
+        except Exception as e:
+            results["api_fuzzer"] = {"error": str(e)}
+    
+    # Link Graph Builder
+    if "link_graph" in selected_services:
+        try:
+            results["link_graph"] = link_graph.build(html_content, url_norm)
+        except Exception as e:
+            results["link_graph"] = {"error": str(e)}
+    
+    # Subdomain Clusterer
+    if "sub_cluster" in selected_services:
+        try:
+            subdomains = results.get("subdomain_scan", {}).get("found", [])
+            results["sub_cluster"] = subdomain_clusterer.cluster(subdomains)
+        except Exception as e:
+            results["sub_cluster"] = {"error": str(e)}
+    
+    # Website Value Estimator
+    if "site_value" in selected_services:
+        try:
+            results["site_value"] = value_estimator.estimate(html_content, response_headers, tech_stack)
+        except Exception as e:
+            results["site_value"] = {"error": str(e)}
+    
+    # Cookie Consent Analyzer
+    if "cookie_consent" in selected_services:
+        try:
+            results["cookie_consent"] = cookie_analyzer.analyze(html_content)
+        except Exception as e:
+            results["cookie_consent"] = {"error": str(e)}
+    
+    # ============ v6.0 SOCMINT & RANSOMWARE INTEL ============
+    
+    # Social Media Intelligence - find profiles
+    if "social_intel" in selected_services and domain:
+        try:
+            results["social_intel"] = social_intel.find_profiles(domain.split(".")[0])
+        except Exception as e:
+            results["social_intel"] = {"error": str(e)}
+    
+    # Social Media Extractor - extract from HTML
+    if "social_extract" in selected_services:
+        try:
+            results["social_extract"] = social_intel.extract_from_html(html_content)
+        except Exception as e:
+            results["social_extract"] = {"error": str(e)}
+    
+    # Ransomware Victim Check
+    if "ransomware_check" in selected_services and domain:
+        try:
+            results["ransomware_check"] = ransomware_monitor.check_victim(domain)
+        except Exception as e:
+            results["ransomware_check"] = {"error": str(e)}
+    
+    # Active Ransomware Groups
+    if "ransom_groups" in selected_services:
+        try:
+            results["ransom_groups"] = ransomware_monitor.get_active_groups()
+        except Exception as e:
+            results["ransom_groups"] = {"error": str(e)}
+    
+    # Recent Ransomware Victims
+    if "ransom_victims" in selected_services:
+        try:
+            results["ransom_victims"] = ransomware_monitor.get_recent_victims(20)
+        except Exception as e:
+            results["ransom_victims"] = {"error": str(e)}
+
+    # ============ v6.1.0 ENHANCED ANALYSIS MODULES ============
+    # These modules run enhanced local analysis without external APIs
+    
+    enhancement_services = {
+        "security_posture", "attack_vectors", "smart_summary", "http_fingerprint",
+        "input_validation", "csp_analysis", "recon_detection", "js_complexity",
+        "session_analysis", "rate_limiting", "cache_analysis", "form_security", "meta_tags"
+    }
+    
+    if ENHANCEMENTS_AVAILABLE and any(s in selected_services for s in enhancement_services):
+        try:
+            duration = time.perf_counter() - t0
+            enhanced_results = run_enhanced_modules(results, url_norm, html_content, response_headers, duration)
+            
+            # Add selected enhancement results
+            for key in enhancement_services:
+                if key in selected_services and key in enhanced_results:
+                    results[key] = enhanced_results[key]
+        except Exception as e:
+            logger.warning(f"Enhanced modules failed: {e}")
+
     summary = build_summary(results)
     try:
         summary["anomalies"] = compute_anomalies(url_norm, summary)
@@ -4403,6 +9828,21 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
     # Apply MITRE ATT&CK mapping
     results["mitre_attack"] = apply_mitre_mapping(results)
     
+    # AI-Enhanced Analysis (v3.0)
+    if AI_ENABLED:
+        try:
+            # Smart risk scoring with ML factors
+            smart_risk = ai_analyzer.smart_risk_scoring(results)
+            summary["ai_risk_score"] = smart_risk.get("score", summary.get("risk_score", 0))
+            summary["ai_risk_level"] = smart_risk.get("level", summary.get("risk_level", "unknown"))
+            summary["risk_factors"] = smart_risk.get("factors", [])
+            
+            # AI executive summary
+            summary["ai_summary"] = ai_analyzer.generate_executive_summary(results)
+        except Exception as e:
+            logger.warning(f"AI analysis failed: {e}")
+            summary["ai_summary"] = ai_analyzer._fallback_summary(results)
+    
     results["_summary"] = summary
     results["_meta"] = {
         "total_seconds": round(time.perf_counter() - t0, 3),
@@ -4410,7 +9850,52 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
         "scheduled_run": scheduled_run,
         "base_domain": domain,
         "scheme": parsed_url.scheme or "http",
+        "aegis_version": AEGIS_VERSION,
+        "ai_enabled": AI_ENABLED,
+        "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+    
+    # ============ v4.0 POST-PROCESSING MODULES ============
+    # These run after all other modules so they can analyze the complete results
+    
+    # Attack Surface Mapper - visualizes all discovered assets
+    if "attack_map" in selected_services:
+        try:
+            results["attack_map"] = attack_surface_mapper.map_surface(results)
+        except Exception as e:
+            results["attack_map"] = {"error": str(e)}
+    
+    # Scan Diff Analyzer - compares with previous scan
+    if "scan_diff" in selected_services:
+        try:
+            # Get previous scan from database
+            with app.app_context():
+                db = get_db()
+                prev_row = db.execute(
+                    "SELECT results FROM scans WHERE url LIKE ? ORDER BY id DESC LIMIT 1",
+                    (f"%{domain}%",)
+                ).fetchone()
+                previous = json.loads(prev_row["results"]) if prev_row else None
+            results["scan_diff"] = scan_diff_analyzer.analyze(results, previous)
+        except Exception as e:
+            results["scan_diff"] = {"error": str(e), "has_previous": False}
+    
+    # Report Narrative Generator - management-friendly summaries
+    if "report_narrative" in selected_services:
+        try:
+            results["report_narrative"] = report_narrative_gen.generate_full_report(results)
+        except Exception as e:
+            results["report_narrative"] = {"error": str(e)}
+    
+    # Delta Alerts - check for significant changes
+    if "delta_alerts" in selected_services:
+        try:
+            with app.app_context():
+                db = get_db()
+                results["delta_alerts"] = delta_alert_manager.check_for_changes(results, db)
+        except Exception as e:
+            results["delta_alerts"] = {"error": str(e), "alerts": []}
+    
     maybe_send_notification(url_norm, summary, results)
     maybe_create_ticket(url_norm, summary, results)
     return results, url_norm
@@ -4474,7 +9959,7 @@ def scan():
         url=url_norm,
         view_mode=view_mode,
         mode=mode,
-        pdf_available=(HTML is not None),
+        pdf_available=(WeasyHTML is not None),
         scan_id=scan_id
     )
 
@@ -4523,7 +10008,7 @@ def view_scan(scan_id):
         url=row["url"],
         view_mode="human",
         mode="defensive",
-        pdf_available=(HTML is not None),
+        pdf_available=(WeasyHTML is not None),
         scan_id=row["id"]
     )
 
@@ -4584,7 +10069,7 @@ def export_json():
 
 @app.route("/export/pdf")
 def export_pdf():
-    if HTML is None:
+    if WeasyHTML is None:
         return "PDF export functionality is not available. Please install weasyprint.", 500
     results = app.config.get("LATEST_RESULTS", {})
     if not results:
@@ -4598,7 +10083,7 @@ def export_pdf():
         pdf_available=False,
         scan_id=app.config.get("LATEST_SCAN_ID")
     )
-    pdf = HTML(string=rendered_html).write_pdf()
+    pdf = WeasyHTML(string=rendered_html).write_pdf()
     response = make_response(pdf)
     response.headers['Content-Type'] = 'application/pdf'
     response.headers['Content-Disposition'] = 'attachment; filename=report.pdf'
@@ -4655,20 +10140,190 @@ def export_report():
         generated=datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
     )
     report_format = request.args.get("format", "pdf").lower()
-    if report_format == "html" or HTML is None:
+    if report_format == "html" or WeasyHTML is None:
         resp = make_response(report_html)
         resp.headers["Content-Type"] = "text/html"
         resp.headers["Content-Disposition"] = "attachment; filename=report.html"
         return resp
-    pdf = HTML(string=report_html).write_pdf()
+    pdf = WeasyHTML(string=report_html).write_pdf()
     response = make_response(pdf)
     response.headers['Content-Type'] = 'application/pdf'
     response.headers['Content-Disposition'] = 'attachment; filename=report.pdf'
     return response
 
+# ================================================================================
+#                           REST API ENDPOINTS (v3.0)
+# ================================================================================
+
+@app.route("/api/v1/scan", methods=["POST"])
+def api_scan():
+    """REST API endpoint for programmatic scanning."""
+    data = request.get_json() or {}
+    url_to_scan = data.get("url")
+    if not url_to_scan:
+        return jsonify({"error": "URL is required"}), 400
+    
+    services = data.get("services", ["crawler", "tech", "headers", "sec_headers"])
+    mode = data.get("mode", "defensive")
+    
+    try:
+        results, normalized_url = run_scan(url_to_scan, services, mode)
+        
+        # Store in database
+        db = get_db()
+        cur = db.execute(
+            "INSERT INTO scans(url, results, scan_date) VALUES(?,?,?)",
+            (normalized_url, json.dumps(results), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        db.commit()
+        scan_id = cur.lastrowid
+        
+        return jsonify({
+            "success": True,
+            "scan_id": scan_id,
+            "url": normalized_url,
+            "summary": results.get("_summary", {}),
+            "meta": results.get("_meta", {})
+        })
+    except Exception as e:
+        logger.error(f"API scan failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/v1/scan/<int:scan_id>", methods=["GET"])
+def api_get_scan(scan_id):
+    """Get scan results by ID."""
+    db = get_db()
+    row = db.execute("SELECT * FROM scans WHERE id=?", (scan_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Scan not found"}), 404
+    
+    return jsonify({
+        "id": row["id"],
+        "url": row["url"],
+        "scan_date": row["scan_date"],
+        "results": json.loads(row["results"])
+    })
+
+
+@app.route("/api/v1/scans", methods=["GET"])
+def api_list_scans():
+    """List all scans with pagination."""
+    page = request.args.get("page", 1, type=int)
+    per_page = min(request.args.get("per_page", 20, type=int), 100)
+    offset = (page - 1) * per_page
+    
+    db = get_db()
+    total = db.execute("SELECT COUNT(*) as c FROM scans").fetchone()["c"]
+    rows = db.execute(
+        "SELECT id, url, scan_date FROM scans ORDER BY id DESC LIMIT ? OFFSET ?",
+        (per_page, offset)
+    ).fetchall()
+    
+    return jsonify({
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "scans": [{"id": r["id"], "url": r["url"], "scan_date": r["scan_date"]} for r in rows]
+    })
+
+
+@app.route("/api/v1/export/splunk/<int:scan_id>", methods=["GET"])
+def api_export_splunk(scan_id):
+    """Export scan results in Splunk HEC format."""
+    db = get_db()
+    row = db.execute("SELECT url, results FROM scans WHERE id=?", (scan_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Scan not found"}), 404
+    
+    results = json.loads(row["results"])
+    events = export_splunk_format(results, row["url"])
+    return jsonify({"events": events})
+
+
+@app.route("/api/v1/export/elastic/<int:scan_id>", methods=["GET"])
+def api_export_elastic(scan_id):
+    """Export scan results in Elasticsearch bulk format."""
+    db = get_db()
+    row = db.execute("SELECT url, results FROM scans WHERE id=?", (scan_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Scan not found"}), 404
+    
+    results = json.loads(row["results"])
+    docs = export_elastic_format(results, row["url"])
+    return jsonify({"documents": docs})
+
+
+@app.route("/api/v1/compare/<int:old_id>/<int:new_id>", methods=["GET"])
+def api_compare_scans(old_id, new_id):
+    """Compare two scans for change detection."""
+    db = get_db()
+    changes = change_detection(old_id, new_id, db)
+    return jsonify(changes)
+
+
+@app.route("/api/v1/trends/<domain>", methods=["GET"])
+def api_trend_analysis(domain):
+    """Get security trend analysis for a domain."""
+    db = get_db()
+    limit = request.args.get("limit", 10, type=int)
+    trends = trend_analysis(domain, db, limit)
+    return jsonify(trends)
+
+
+@app.route("/api/v1/asset-discovery", methods=["POST"])
+def api_asset_discovery():
+    """Discover assets from a seed domain."""
+    data = request.get_json() or {}
+    domain = data.get("domain")
+    if not domain:
+        return jsonify({"error": "Domain is required"}), 400
+    
+    assets = asset_discovery(domain)
+    return jsonify(assets)
+
+
+@app.route("/api/v1/health", methods=["GET"])
+def api_health():
+    """Health check endpoint."""
+    return jsonify({
+        "status": "healthy",
+        "version": AEGIS_VERSION,
+        "ai_enabled": AI_ENABLED,
+        "features": {
+            "openai": OPENAI_AVAILABLE,
+            "anthropic": ANTHROPIC_AVAILABLE,
+            "ml": ML_AVAILABLE,
+            "plotly": PLOTLY_AVAILABLE,
+            "censys": CENSYS_AVAILABLE,
+        }
+    })
+
+
+@app.route("/api/v1/webhook/test", methods=["POST"])
+def api_test_webhook():
+    """Test webhook notifications."""
+    data = request.get_json() or {}
+    webhook_type = data.get("type", "discord")
+    message = data.get("message", "AEGIS Test Notification")
+    
+    success = False
+    if webhook_type == "discord":
+        success = send_discord_notification(message)
+    elif webhook_type == "teams":
+        success = send_teams_notification(message)
+    elif webhook_type == "telegram":
+        success = send_telegram_notification(message)
+    
+    return jsonify({"success": success, "type": webhook_type})
+
+
 # ---------------- Main ----------------
 if __name__ == "__main__":
     with app.app_context():
         init_db()
+    logger.info(f"🛡️ AEGIS v{AEGIS_VERSION} - Enterprise Threat Hunter")
+    logger.info(f"   AI Features: {'Enabled' if AI_ENABLED else 'Disabled'}")
     # Bind to localhost to avoid Windows firewall prompt for public networks
     app.run(host="127.0.0.1", port=8080, debug=True)
+

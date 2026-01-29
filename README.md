@@ -27,24 +27,122 @@
 
 > **Stop wasting hours running 20 different tools.** AEGIS combines passive OSINT, active reconnaissance, and threat intelligence into one beautiful interface.
 
-| Traditional Approach | With AEGIS |
-|---------------------|------------|
-| 🔧 Run nmap, then dig, then curl, then... | ⚡ One click, all modules |
-| 📝 Manual note-taking across tools | 📊 Auto-generated reports |
-| 🤔 "Did I check the SSL cert?" | ✅ Comprehensive checklists |
-| 😴 Hours of repetitive work | ☕ Results in under 60 seconds |
+| Traditional Approach                      | With AEGIS                     |
+| ----------------------------------------- | ------------------------------ |
+| 🔧 Run nmap, then dig, then curl, then... | ⚡ One click, all modules      |
+| 📝 Manual note-taking across tools        | 📊 Auto-generated reports      |
+| 🤔 "Did I check the SSL cert?"            | ✅ Comprehensive checklists    |
+| 😴 Hours of repetitive work               | ☕ Results in under 60 seconds |
 
 ---
 
 ## ✨ Features
 
-### 🎯 **30+ Reconnaissance Modules**
+### 🆕 **NEW in v4.0 - Innovative Analysis (No API Required!)**
+
+| Module                          | Description                                            |
+| ------------------------------- | ------------------------------------------------------ |
+| 🔬 **Entropy Scanner**          | Find secrets using Shannon entropy analysis            |
+| 📝 **Wordlist Generator**       | Auto-generate bruteforce wordlists from target content |
+| 🔐 **Password Policy Detector** | Detect password requirements from login forms          |
+| 📈 **Technology Timeline**      | Track tech stack evolution via Archive.org             |
+| 📊 **Scan Diff Analyzer**       | Compare scans and highlight changes                    |
+| 🗺️ **Attack Surface Mapper**    | Visualize discovered assets as network graph           |
+| 📋 **Report Narratives**        | Generate management-friendly reports                   |
+| ⏰ **Delta Alerts**             | Get notified when significant changes occur            |
+
+> 💡 **All v4.0 features work 100% locally - no API keys required!**
+
+### 🚀 **NEW in v5.0 - 21 Advanced Features (100% Local!)**
+
+<details>
+<summary><strong>🛡️ Advanced Security (10 modules)</strong></summary>
+
+| Module                    | Description                                     |
+| ------------------------- | ----------------------------------------------- |
+| 💰 **Crypto Scanner**     | Detect BTC, ETH, Monero wallet addresses        |
+| 🕵️ **Privacy Detector**   | Find trackers, fingerprinting, analytics pixels |
+| 🗄️ **DB Leak Detector**   | Catch database errors & info exposure           |
+| 🔓 **JS Deobfuscator**    | Analyze obfuscated malicious JavaScript         |
+| 🎭 **Homoglyph Scanner**  | Find typosquatting domain variants              |
+| 👻 **Ghost Finder**       | Discover hidden paths & admin panels            |
+| 🍯 **Honeypot Detector**  | Identify decoy/canary systems                   |
+| 🌍 **Geo-Block Detector** | Detect geographic restrictions                  |
+| ✅ **Compliance Checker** | Quick GDPR/CCPA/PCI-DSS audit                   |
+| 🔮 **Vuln Predictor**     | Predict risks from tech stack                   |
+
+</details>
+
+<details>
+<summary><strong>🧪 Intelligence & Experimental (11 modules)</strong></summary>
+
+| Module                   | Description                         |
+| ------------------------ | ----------------------------------- |
+| 📹 **Media Scanner**     | Find video, audio, document files   |
+| 📱 **Mobile Detector**   | Find app store links & deep links   |
+| 📧 **Email Harvester**   | Extract newsletter forms & services |
+| 🎨 **Brand Extractor**   | Extract logos, colors, fonts        |
+| 🧬 **Website DNA**       | Generate unique site fingerprint    |
+| ⏱️ **Timing Analyzer**   | Response timing fingerprinting      |
+| 🔌 **API Fuzzer**        | Discover REST/GraphQL endpoints     |
+| 🔗 **Link Graph**        | Map internal/external links         |
+| 📁 **Subdomain Cluster** | Group subdomains by purpose         |
+| 💎 **Site Value**        | Estimate website complexity         |
+| 🍪 **Cookie Consent**    | Analyze cookie compliance           |
+
+</details>
+
+> 🔥 **v5.0 brings 21 NEW modules - all working 100% offline!**
+
+### 🧠 **NEW in v6.1 - Enhanced Analysis (100% Local!)**
+
+<details>
+<summary><strong>📊 Intelligent Risk Analysis (3 modules)</strong></summary>
+
+| Module                         | Description                                   |
+| ------------------------------ | --------------------------------------------- |
+| 🎯 **Security Posture Scorer** | 0-100 score with A-F grade and risk breakdown |
+| 🛤️ **Attack Vector Mapper**    | Map findings to MITRE ATT&CK attack chains    |
+| ✨ **Smart Summary Generator** | Executive summary with top 5 action items     |
+
+</details>
+
+<details>
+<summary><strong>🔍 Deep Content Analysis (4 modules)</strong></summary>
+
+| Module                             | Description                                 |
+| ---------------------------------- | ------------------------------------------- |
+| 🔎 **HTTP Response Fingerprinter** | Detect server, framework, and default pages |
+| 📝 **Input Validation Analyzer**   | Find form validation weaknesses             |
+| 🛡️ **CSP Analysis**                | Deep Content-Security-Policy audit          |
+| 📋 **Form Security Analyzer**      | CSRF, file upload, hidden field checks      |
+
+</details>
+
+<details>
+<summary><strong>🕵️ Response & Session Analysis (6 modules)</strong></summary>
+
+| Module                        | Description                            |
+| ----------------------------- | -------------------------------------- |
+| 🎭 **Recon Pattern Detector** | Detect bot protection and honeypots    |
+| 📜 **JS Complexity Analyzer** | Find dangerous functions and DOM sinks |
+| 🔐 **Session Analyzer**       | Cookie entropy, JWT analysis           |
+| ⏱️ **Rate Limit Detector**    | Identify rate limiting headers         |
+| 📦 **Cache Analyzer**         | Find cache security issues             |
+| 🏷️ **Meta Tag Analyzer**      | Audit robots, referrer, OG data        |
+
+</details>
+
+> 🧠 **v6.1 adds intelligent analysis with risk scoring, attack mapping, and smart summaries!**
+
+### 🎯 **40+ Reconnaissance Modules**
 
 <table>
 <tr>
 <td width="50%">
 
 **🔍 Discovery & Fingerprinting**
+
 - Web crawler with form & JS extraction
 - Technology stack detection
 - HTTP header analysis
@@ -54,6 +152,7 @@
 <td width="50%">
 
 **🌐 DNS & Domain Intel**
+
 - DNS records (A, AAAA, MX, TXT, NS)
 - WHOIS lookup
 - Subdomain enumeration (CT logs + bruteforce)
@@ -65,6 +164,7 @@
 <td>
 
 **🛡️ Security Analysis**
+
 - SSL/TLS grading (A-F score)
 - Security headers audit
 - CORS misconfiguration check
@@ -76,6 +176,7 @@
 <td>
 
 **🎭 Threat Intelligence**
+
 - VirusTotal integration
 - Shodan lookup
 - GreyNoise classification
@@ -136,6 +237,7 @@ python aegis.py
 ## 📸 What You'll See
 
 ### 🏠 **Modern Home Page**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  ⚔️ AEGIS — Automated Enrichment & Global Intelligence      │
@@ -154,6 +256,7 @@ python aegis.py
 ```
 
 ### 📊 **Results Dashboard**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  THREAT HUNT RESULTS                                        │
@@ -175,26 +278,34 @@ python aegis.py
 
 ## 🧩 Module Catalog
 
-| Category | Module | What It Does |
-|----------|--------|--------------|
-| 🔍 **Discovery** | Crawler | Pages, emails, forms, JS files, social links |
-| 🔍 **Discovery** | Fingerprint | Tech stack detection (React, WordPress, etc.) |
-| 🔍 **Discovery** | WAF Detect | Cloudflare, AWS WAF, Akamai, Imperva |
-| 🌐 **DNS** | Records | A, AAAA, MX, NS, TXT, SOA |
-| 🌐 **DNS** | Subdomains | CT logs + bruteforce enumeration |
-| 🌐 **DNS** | Takeover | Dangling CNAME detection for 10+ services |
-| 🛡️ **Security** | SSL/TLS | Protocol, cipher, cert chain, expiry |
-| 🛡️ **Security** | Headers | HSTS, CSP, X-Frame-Options audit |
-| 🛡️ **Security** | CORS | Origin reflection, wildcard detection |
-| 🛡️ **Security** | Cookies | Secure, HttpOnly, SameSite flags |
-| 🛡️ **Security** | JS Secrets | AWS keys, tokens, passwords in code |
-| 🛡️ **Security** | Port Scan | Top 18 ports with service ID |
-| 🎭 **Intel** | VirusTotal | URL reputation from 70+ engines |
-| 🎭 **Intel** | Shodan | Open ports, services, vulnerabilities |
-| 🎭 **Intel** | GreyNoise | Actor classification |
-| 🎭 **Intel** | MITRE ATT&CK | Auto-map findings to techniques |
-| 📧 **Email** | SPF/DKIM/DMARC | Email security posture grading |
-| 📧 **Email** | HIBP | Breach exposure for found emails |
+| Category         | Module           | What It Does                                  |
+| ---------------- | ---------------- | --------------------------------------------- |
+| 🔍 **Discovery** | Crawler          | Pages, emails, forms, JS files, social links  |
+| 🔍 **Discovery** | Fingerprint      | Tech stack detection (React, WordPress, etc.) |
+| 🔍 **Discovery** | WAF Detect       | Cloudflare, AWS WAF, Akamai, Imperva          |
+| 🌐 **DNS**       | Records          | A, AAAA, MX, NS, TXT, SOA                     |
+| 🌐 **DNS**       | Subdomains       | CT logs + bruteforce enumeration              |
+| 🌐 **DNS**       | Takeover         | Dangling CNAME detection for 10+ services     |
+| 🛡️ **Security**  | SSL/TLS          | Protocol, cipher, cert chain, expiry          |
+| 🛡️ **Security**  | Headers          | HSTS, CSP, X-Frame-Options audit              |
+| 🛡️ **Security**  | CORS             | Origin reflection, wildcard detection         |
+| 🛡️ **Security**  | Cookies          | Secure, HttpOnly, SameSite flags              |
+| 🛡️ **Security**  | JS Secrets       | AWS keys, tokens, passwords in code           |
+| 🛡️ **Security**  | Port Scan        | Top 18 ports with service ID                  |
+| 🎭 **Intel**     | VirusTotal       | URL reputation from 70+ engines               |
+| 🎭 **Intel**     | Shodan           | Open ports, services, vulnerabilities         |
+| 🎭 **Intel**     | GreyNoise        | Actor classification                          |
+| 🎭 **Intel**     | MITRE ATT&CK     | Auto-map findings to techniques               |
+| 📧 **Email**     | SPF/DKIM/DMARC   | Email security posture grading                |
+| 📧 **Email**     | HIBP             | Breach exposure for found emails              |
+| 💡 **v4.0**      | Entropy Scan     | Find secrets via Shannon entropy analysis     |
+| 💡 **v4.0**      | Wordlist Gen     | Generate bruteforce wordlists from target     |
+| 💡 **v4.0**      | Password Policy  | Detect password requirements from forms       |
+| 💡 **v4.0**      | Tech Timeline    | Track tech changes via Archive.org            |
+| 💡 **v4.0**      | Scan Diff        | Compare scans and highlight changes           |
+| 💡 **v4.0**      | Attack Map       | Visualize attack surface as graph             |
+| 💡 **v4.0**      | Report Narrative | Management-friendly reports                   |
+| 💡 **v4.0**      | Delta Alerts     | Alert on significant changes                  |
 
 ---
 
@@ -226,6 +337,7 @@ AUTO_TICKET_THRESHOLD=70
 ## 🎯 Use Cases
 
 ### 🔵 **Blue Team - Continuous Monitoring**
+
 ```
 1. Schedule hourly scans on crown-jewel domains
 2. Get Slack alerts when risk scores spike
@@ -234,6 +346,7 @@ AUTO_TICKET_THRESHOLD=70
 ```
 
 ### 🟣 **Purple Team - Attack Surface Mapping**
+
 ```
 1. Enumerate all subdomains and open ports
 2. Find exposed credentials in JS files
@@ -242,6 +355,7 @@ AUTO_TICKET_THRESHOLD=70
 ```
 
 ### 🔴 **Red Team - Recon Automation**
+
 ```
 1. Rapid target profiling
 2. Technology stack identification
@@ -254,6 +368,7 @@ AUTO_TICKET_THRESHOLD=70
 ## 🤝 Contributing
 
 We welcome contributions! Check out:
+
 - 🐛 [Issues](https://github.com/Masriyan/Aegis/issues)
 - 🔀 [Pull Requests](https://github.com/Masriyan/Aegis/pulls)
 
@@ -271,6 +386,7 @@ We welcome contributions! Check out:
 > **Only scan assets you own or have explicit authorization to test.**
 
 AEGIS is designed for:
+
 - ✅ Security researchers with permission
 - ✅ Bug bounty hunters on in-scope targets
 - ✅ Blue teams monitoring their own infrastructure
