@@ -3739,6 +3739,41 @@ def get_domain(u: str) -> str:
     except Exception:
         return ""
 
+def is_public_http_url(u: str) -> bool:
+    """
+    Basic SSRF guard: ensure URL uses http/https and resolves to a public IP.
+    """
+    try:
+        parsed = urlparse(u)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = parsed.hostname
+        if not host:
+            return False
+        ip = socket.gethostbyname(host)
+        # Convert to integer to check ranges
+        parts = ip.split(".")
+        if len(parts) != 4:
+            return False
+        octets = [int(p) for p in parts]
+        ip_int = (octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]
+        # Private/loopback/link-local/reserved ranges we want to block
+        private_ranges = [
+            (0x0A000000, 0x0AFFFFFF),       # 10.0.0.0/8
+            (0xAC100000, 0xAC1FFFFF),       # 172.16.0.0/12
+            (0xC0A80000, 0xC0A8FFFF),       # 192.168.0.0/16
+            (0x7F000000, 0x7FFFFFFF),       # 127.0.0.0/8 loopback
+            (0xA9FE0000, 0xA9FEFFFF),       # 169.254.0.0/16 link-local
+            (0x00000000, 0x00FFFFFF),       # 0.0.0.0/8
+            (0xE0000000, 0xEFFFFFFF),       # 224.0.0.0/4 multicast
+        ]
+        for start, end in private_ranges:
+            if start <= ip_int <= end:
+                return False
+        return True
+    except Exception:
+        return False
+
 def http_get(u: str):
     try:
         r = SESSION.get(u, timeout=DEFAULT_TIMEOUT, allow_redirects=True)
@@ -8343,10 +8378,14 @@ class SocialMediaIntel:
             }
             
             if check_exists:
-                try:
-                    resp = requests.head(url, timeout=3, allow_redirects=True)
-                    profile["exists"] = resp.status_code == 200
-                except:
+                # Avoid SSRF by only probing public http/https URLs.
+                if is_public_http_url(url):
+                    try:
+                        resp = requests.head(url, timeout=3, allow_redirects=True)
+                        profile["exists"] = resp.status_code == 200
+                    except Exception:
+                        profile["exists"] = None
+                else:
                     profile["exists"] = None
             
             profiles.append(profile)
