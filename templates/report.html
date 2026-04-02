@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"><title>AEGIS — Security Assessment Report</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #06080f; color: #e2e8f0; }
+    .wrapper { max-width: 900px; margin: 0 auto; padding: 3rem 2rem; }
+
+    /* Cover */
+    .cover { text-align: center; padding: 4rem 2rem; border-bottom: 1px solid rgba(71,85,105,0.3); margin-bottom: 3rem; }
+    .cover .logo { width: 60px; height: 60px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 1rem; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; color: white; margin-bottom: 1.5rem; }
+    .cover h1 { font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0.5rem; }
+    .cover .meta { font-size: 0.85rem; color: #64748b; line-height: 1.8; }
+    .cover .meta strong { color: #e2e8f0; }
+
+    /* Risk Banner */
+    .risk-banner { display: flex; gap: 1.5rem; padding: 1.5rem; border-radius: 1rem; margin-bottom: 2.5rem; border: 1px solid rgba(71,85,105,0.3); background: rgba(15,23,42,0.6); }
+    .risk-banner .score { font-size: 3rem; font-weight: 900; min-width: 80px; text-align: center; }
+    .risk-banner .details { flex: 1; }
+    .risk-banner .details h3 { font-size: 0.8rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; }
+
+    /* Cards */
+    .stat-row { display: flex; gap: 1rem; margin-bottom: 2rem; }
+    .stat-box { flex: 1; background: rgba(15,23,42,0.5); border: 1px solid rgba(71,85,105,0.2); border-radius: 0.75rem; padding: 1.25rem; text-align: center; }
+    .stat-box .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; font-weight: 600; }
+    .stat-box .value { font-size: 1.75rem; font-weight: 800; margin-top: 0.25rem; }
+
+    /* Sections */
+    .section { margin-bottom: 2.5rem; }
+    .section h2 { font-size: 1.1rem; font-weight: 700; color: #60a5fa; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(71,85,105,0.2); }
+
+    /* Tables */
+    table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 0.75rem; overflow: hidden; margin-bottom: 1rem; }
+    th, td { padding: 0.65rem 0.85rem; text-align: left; font-size: 0.8rem; border-bottom: 1px solid rgba(71,85,105,0.15); }
+    th { background: rgba(15,23,42,0.8); color: #94a3b8; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    tbody tr:hover { background: rgba(59,130,246,0.03); }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; }
+    .badge.ok { background: #059669; color: white; }
+    .badge.warn { background: #d97706; color: white; }
+    .badge.bad { background: #dc2626; color: white; }
+
+    /* Print */
+    @media print {
+      body { background: white !important; color: #1a1a1a !important; }
+      .cover { border-bottom-color: #e5e7eb; }
+      .cover h1 { -webkit-text-fill-color: #1e40af; }
+      .risk-banner, .stat-box { background: #f8fafc !important; border-color: #e5e7eb !important; }
+      th { background: #f1f5f9 !important; color: #374151 !important; }
+      td { color: #374151 !important; }
+      .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <!-- Cover -->
+    <div class="cover">
+      <div class="logo"><i class="fas fa-shield-halved" style="font-family:'Font Awesome 6 Free';font-weight:900"></i></div>
+      <h1>AEGIS Security Assessment</h1>
+      <div class="meta">
+        Target: <strong>{{ url }}</strong><br>
+        Generated: <strong>{{ generated }}</strong><br>
+        Risk Level: <strong>{{ summary.get('risk_level', 'N/A')|upper }}</strong> (Score: {{ summary.get('risk_score', 0) }})
+      </div>
+    </div>
+
+    <!-- Risk Banner -->
+    <div class="risk-banner">
+      <div class="score" style="color: {% if summary.get('risk_level') == 'critical' %}#ef4444{% elif summary.get('risk_level') == 'high' %}#f97316{% elif summary.get('risk_level') == 'medium' %}#f59e0b{% else %}#10b981{% endif %}">
+        {{ summary.get('risk_score', 0) }}
+      </div>
+      <div class="details">
+        <h3>Overall Risk Score</h3>
+        <p style="font-size:0.85rem;color:#94a3b8">This score reflects the aggregate security posture based on {{ meta.get('module_times', {})|length }} analysis modules executed in {{ meta.get('total_seconds', '—') }} seconds.</p>
+      </div>
+    </div>
+
+    <!-- Key Metrics -->
+    <div class="stat-row">
+      <div class="stat-box"><div class="label">Duration</div><div class="value" style="color:#06b6d4">{{ meta.get('total_seconds', '—') }}s</div></div>
+      <div class="stat-box"><div class="label">Subdomains</div><div class="value" style="color:#10b981">{{ summary.get('subdomains', 0) }}</div></div>
+      <div class="stat-box"><div class="label">Missing Headers</div><div class="value" style="color:#f59e0b">{{ summary.get('missing_sec_headers', 0) }}</div></div>
+      <div class="stat-box"><div class="label">VT Malicious</div><div class="value" style="color:#ef4444">{{ summary.get('vt_malicious', 0) }}</div></div>
+    </div>
+
+    {% if owasp %}
+    <div class="section">
+      <h2>OWASP Top 10 Assessment</h2>
+      <table><thead><tr><th>Category</th><th>Status</th><th>Evidence</th></tr></thead>
+      <tbody>{% for row in owasp %}<tr>
+        <td>{{ row.category }}</td>
+        <td><span class="badge {{ 'ok' if row.status == 'pass' else 'bad' if row.status == 'fail' else 'warn' }}">{{ row.status|upper }}</span></td>
+        <td>{{ row.evidence }}</td>
+      </tr>{% endfor %}</tbody></table>
+    </div>
+    {% endif %}
+
+    {% if exposures %}
+    <div class="section">
+      <h2>Exposed Paths</h2>
+      <table><thead><tr><th>Path</th><th>Status</th><th>Severity</th><th>Description</th></tr></thead>
+      <tbody>{% for row in exposures %}<tr>
+        <td class="font-mono">{{ row.path }}</td><td>{{ row.status }}</td><td>{{ row.severity|capitalize }}</td><td>{{ row.description }}</td>
+      </tr>{% endfor %}</tbody></table>
+    </div>
+    {% endif %}
+
+    {% if subdomains %}
+    <div class="section">
+      <h2>Discovered Subdomains (Sample)</h2>
+      <table><thead><tr><th>Subdomain</th><th>Source</th><th>Resolved IPs</th></tr></thead>
+      <tbody>{% for row in subdomains %}<tr>
+        <td class="font-mono">{{ row.subdomain }}</td><td>{{ row.source }}</td><td>{{ (row.a_records or [])|join(', ') }}</td>
+      </tr>{% endfor %}</tbody></table>
+    </div>
+    {% endif %}
+
+    {% if signatures %}
+    <div class="section">
+      <h2>Detected Signatures</h2>
+      <table><thead><tr><th>Signature</th><th>Severity</th></tr></thead>
+      <tbody>{% for sig in signatures %}<tr><td>{{ sig.name }}</td><td><span class="badge {{ 'bad' if sig.severity == 'high' else 'warn' }}">{{ sig.severity }}</span></td></tr>{% endfor %}</tbody></table>
+    </div>
+    {% endif %}
+
+    <div class="section">
+      <h2>Module Performance</h2>
+      <table><thead><tr><th>Module</th><th>Duration</th></tr></thead>
+      <tbody>{% for name, secs in meta.get('module_times', {}).items() %}<tr><td>{{ name }}</td><td>{{ secs }}s</td></tr>{% endfor %}</tbody></table>
+    </div>
+
+    <div style="text-align:center;margin-top:3rem;padding-top:2rem;border-top:1px solid rgba(71,85,105,0.2)">
+      <p style="font-size:0.7rem;color:#475569">Generated by AEGIS v7.0 — Automated Enrichment & Global Intelligence Scanner</p>
+      <p style="font-size:0.65rem;color:#334155;margin-top:0.25rem">For authorized use only. Classification: CONFIDENTIAL</p>
+    </div>
+  </div>
+</body>
+</html>

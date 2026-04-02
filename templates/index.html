@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AEGIS — Automated Enrichment &amp; Global Intelligence Scanner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="https://unpkg.com/htmx.org/dist/ext/sse.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/aegis.css">
+</head>
+<body class="aegis-dark">
+
+  <!-- Particle Field -->
+  <div class="particle-field">
+    <div class="dot" style="left:10%;animation-delay:0s"></div>
+    <div class="dot" style="left:25%;animation-delay:3s;background:var(--accent-purple)"></div>
+    <div class="dot" style="left:45%;animation-delay:7s"></div>
+    <div class="dot" style="left:65%;animation-delay:2s;background:var(--accent-cyan)"></div>
+    <div class="dot" style="left:85%;animation-delay:5s;background:var(--accent-purple)"></div>
+    <div class="dot" style="left:5%;animation-delay:10s"></div>
+    <div class="dot" style="left:75%;animation-delay:12s;background:var(--accent-green)"></div>
+    <div class="dot" style="left:35%;animation-delay:15s"></div>
+  </div>
+
+  <!-- Module Counter (floating) -->
+  <div class="module-counter" id="moduleCounter" style="display:none">
+    <i class="fas fa-puzzle-piece text-blue-400 mr-2"></i>
+    <span class="count-num" id="selectedCount">0</span>
+    <span class="text-gray-500">/</span>
+    <span class="text-gray-500" id="totalModules">0</span>
+    <span class="text-gray-500 ml-1">modules</span>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" style="display:none" class="fixed inset-0 z-[9999] flex items-center justify-center" style="background:rgba(0,0,0,0.95);backdrop-filter:blur(12px)">
+    <div class="text-center">
+      <div class="w-20 h-20 mx-auto rounded-full border-[3px] border-transparent border-t-blue-500 border-r-purple-500 animate-spin relative">
+        <div class="absolute inset-2 rounded-full border-[3px] border-transparent border-t-cyan-400 animate-spin" style="animation-direction:reverse;animation-duration:1.8s"></div>
+      </div>
+      <div class="text-white text-lg font-bold mt-6">Hunting for Threats...</div>
+      <div class="text-gray-500 text-sm mt-1">Analyzing and enriching intelligence data</div>
+    </div>
+  </div>
+
+  <div class="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-6">
+
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 animate-fade-up">
+      <div class="mb-4 md:mb-0">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="relative w-11 h-11 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30" style="box-shadow: var(--glow-blue)">
+            <i class="fas fa-shield-halved text-blue-400 text-xl"></i>
+          </div>
+          <div>
+            <h1 class="text-xl md:text-2xl font-extrabold tracking-wide bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent bg-[length:300%_300%]" style="animation: gradFlow 8s ease infinite">AEGIS // OSINT</h1>
+            <style>@keyframes gradFlow{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}</style>
+          </div>
+        </div>
+        <p class="text-gray-500 text-sm md:text-base max-w-xl">
+          <span class="text-blue-400 font-medium">A</span>utomated <span class="text-blue-400 font-medium">E</span>nrichment &amp;
+          <span class="text-purple-400 font-medium">G</span>lobal <span class="text-purple-400 font-medium">I</span>ntelligence
+          <span class="text-cyan-400 font-medium">S</span>canner
+        </p>
+      </div>
+      <nav class="flex items-center gap-3">
+        <a href="/history" class="btn-aegis secondary"><i class="fas fa-clock-rotate-left text-blue-400"></i> History</a>
+        <a href="/scheduled" class="btn-aegis secondary"><i class="fas fa-calendar-check text-purple-400"></i> Scheduled</a>
+      </nav>
+    </header>
+
+    <!-- Results Container (HTMX target) -->
+    <div id="results-container">
+      <form id="scanForm" hx-post="/scan" hx-target="#results-container" hx-swap="outerHTML" class="glass-tier-1 p-6 md:p-8 animate-fade-up" style="animation-delay:0.1s">
+
+        <!-- Target Input -->
+        <div class="grid md:grid-cols-4 gap-5 mb-8">
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold mb-2 text-gray-400 uppercase tracking-wider">
+              <i class="fas fa-crosshairs text-blue-400 mr-1"></i>Target URL
+            </label>
+            <div class="relative">
+              <input type="url" name="url" placeholder="https://example.com" required
+                     class="w-full rounded-xl filter-input px-4 py-3 text-white pr-12" />
+              <div class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600"><i class="fas fa-globe"></i></div>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-2 text-gray-400 uppercase tracking-wider">
+              <i class="fas fa-sliders text-purple-400 mr-1"></i>Mode
+            </label>
+            <select name="mode" class="w-full rounded-xl filter-input px-4 py-3 text-white cursor-pointer">
+              <option value="defensive" selected>🛡️ Defensive</option>
+              <option value="semi">⚔️ Semi-offensive</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-2 text-gray-400 uppercase tracking-wider">
+              <i class="fas fa-wand-magic-sparkles text-cyan-400 mr-1"></i>Preset
+            </label>
+            <select id="presetSelect" class="w-full rounded-xl filter-input px-4 py-3 text-white cursor-pointer">
+              <option value="">Select preset...</option>
+              <option value="recon">🔍 Recon (Passive OSINT)</option>
+              <option value="passive">🔒 Passive (Safe Defaults)</option>
+              <option value="semi">⚡ Semi-offensive (Auth)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Modules Section -->
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-5">
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i class="fas fa-puzzle-piece text-blue-400"></i> Reconnaissance Modules
+            </h3>
+            <div class="flex gap-2">
+              <button type="button" id="selectAll" class="btn-aegis secondary text-xs py-1.5"><i class="fas fa-check-double mr-1"></i>All</button>
+              <button type="button" id="clearAll" class="btn-aegis secondary text-xs py-1.5"><i class="fas fa-times mr-1"></i>Clear</button>
+            </div>
+          </div>
+
+          <!-- Discovery -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-blue-500/15 text-blue-400"><i class="fas fa-magnifying-glass"></i></div><span class="cat-label">Discovery & Fingerprinting</span></div>
+              <div class="flex gap-1.5 opacity-0 hover:opacity-100 transition-opacity"><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,true)">All</button><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,false)">None</button></div>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Crawler','crawler','fa-spider'),('Tech Fingerprint','tech','fa-microchip'),('HTTP Headers','headers','fa-server'),('Security Headers','sec_headers','fa-shield'),('TLS Certificate','tls','fa-lock')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-blue)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:bg-blue-500/20 peer-checked:bg-blue-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- DNS & Domain -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-purple-500/15 text-purple-400"><i class="fas fa-network-wired"></i></div><span class="cat-label">DNS & Domain Intelligence</span></div>
+              <div class="flex gap-1.5 opacity-0 hover:opacity-100 transition-opacity"><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,true)">All</button><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,false)">None</button></div>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('DNS Records','dns','fa-diagram-project'),('WHOIS Lookup','whois','fa-address-card'),('Subdomain Scan','subdomains','fa-sitemap'),('SecurityTrails','securitytrails','fa-route'),('Cloud Assets','cloud_assets','fa-cloud')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-purple)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-purple-500/10 flex items-center justify-center text-purple-400 group-hover:bg-purple-500/20 peer-checked:bg-purple-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Threat Intel -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-red-500/15 text-red-400"><i class="fas fa-biohazard"></i></div><span class="cat-label">Threat Intelligence</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('VirusTotal','virustotal','fa-virus'),('urlscan.io','urlscan','fa-eye'),('AlienVault OTX','otx','fa-user-secret'),('Shodan','shodan','fa-satellite-dish'),('GreyNoise','greynoise','fa-broadcast-tower'),('AbuseIPDB','abuseipdb','fa-ban'),('GitHub Code','github','fa-code-branch'),('Code Scan','code_scan','fa-code'),('Archive.org','archive','fa-box-archive'),('HIBP Check','hibp','fa-user-lock')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-red)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-red-500/10 flex items-center justify-center text-red-400 group-hover:bg-red-500/20 peer-checked:bg-red-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Security Analysis -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-amber-500/15 text-amber-400"><i class="fas fa-triangle-exclamation"></i></div><span class="cat-label">Security Analysis</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('security.txt','security_txt','fa-file-shield'),('Robots.txt','robots_txt','fa-robot'),('Signature Scan','signatures','fa-fingerprint'),('CVE Alerts','cve_alerts','fa-bug'),('OWASP Top 10','owasp_top10','fa-list-check'),('Exposure Probe','exposure_checks','fa-door-open'),('Param Fuzzer','fuzzer','fa-shuffle'),('WAF Detection','waf_detect','fa-shield-halved'),('Email Security','email_security','fa-envelope-circle-check'),('Port Scanner','port_scan','fa-network-wired'),('ASN Lookup','asn_lookup','fa-building'),('Favicon Hash','favicon_hash','fa-image'),('SSL/TLS Audit','ssl_tls','fa-lock'),('Takeover Check','subdomain_takeover','fa-skull-crossbones'),('HTTP Methods','http_methods','fa-arrows-left-right'),('CORS Check','cors','fa-link-slash'),('Cookie Audit','cookie_audit','fa-cookie-bite'),('JS Secrets','js_secrets','fa-key')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-amber)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-amber-500/10 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/20 peer-checked:bg-amber-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Automation -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-green-500/15 text-green-400"><i class="fas fa-robot"></i></div><span class="cat-label">Automation & Capture</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Screenshot','screenshot','fa-camera'),('Workflow Runner','workflow','fa-gears'),('Sandbox Submit','sandbox','fa-flask')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-green)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-green-500/10 flex items-center justify-center text-green-400 group-hover:bg-green-500/20 peer-checked:bg-green-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Extended OSINT v3.0 -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-cyan-500/15 text-cyan-400"><i class="fas fa-globe"></i></div><span class="cat-label">Extended OSINT (v3.0)</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Hunter.io','hunter_io','fa-envelope'),('Censys','censys','fa-server'),('GitHub Dorks','github_dorks','fa-code-branch'),('FullHunt','fullhunt','fa-crosshairs'),('BinaryEdge','binaryedge','fa-database'),('BuiltWith','builtwith','fa-cubes'),('LeakCheck','leakcheck','fa-droplet')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-cyan)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-500/20 peer-checked:bg-cyan-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- v4.0 Innovative -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-indigo-500/15 text-indigo-400"><i class="fas fa-lightbulb"></i></div><span class="cat-label">Innovative Analysis (v4.0 — No API)</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Scan Diff','scan_diff','fa-code-compare'),('Wordlist Gen','wordlist_gen','fa-list-ol'),('Password Policy','password_policy','fa-key'),('Tech Timeline','tech_timeline','fa-timeline'),('Entropy Scan','entropy_scan','fa-chart-bar'),('Attack Map','attack_map','fa-diagram-project'),('Report Narrative','report_narrative','fa-file-lines'),('Delta Alerts','delta_alerts','fa-bell')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#818cf8">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500/20 peer-checked:bg-indigo-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- v5.0 Advanced -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-rose-500/15 text-rose-400"><i class="fas fa-shield-virus"></i></div><span class="cat-label">Advanced Security (v5.0)</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Crypto Scanner','crypto_scan','fa-bitcoin-sign'),('Privacy Detector','privacy_detect','fa-user-secret'),('DB Leak Detect','db_leak','fa-database'),('JS Deobfuscate','js_deobfuscate','fa-code'),('Homoglyph Scan','homoglyph_scan','fa-font'),('Ghost Finder','ghost_finder','fa-ghost'),('Honeypot Detect','honeypot_detect','fa-jar'),('Geo Block','geo_block','fa-globe'),('Compliance Check','compliance_check','fa-clipboard-check'),('Vuln Predict','vuln_predict','fa-bug')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-rose)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-rose-500/10 flex items-center justify-center text-rose-400 group-hover:bg-rose-500/20 peer-checked:bg-rose-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- v5.0 Intelligence & Experimental -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-amber-500/15 text-amber-400"><i class="fas fa-flask"></i></div><span class="cat-label">Intelligence & Experimental (v5.0)</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Media Assets','media_scan','fa-photo-film'),('Mobile Apps','mobile_detect','fa-mobile-screen'),('Email Harvest','email_harvest','fa-envelope-open-text'),('Brand Extract','brand_extract','fa-palette'),('Website DNA','website_dna','fa-dna'),('Timing Analysis','timing_analysis','fa-stopwatch'),('API Fuzzer','api_fuzzer','fa-plug'),('Link Graph','link_graph','fa-share-nodes'),('Sub Cluster','sub_cluster','fa-object-group'),('Site Value','site_value','fa-coins'),('Cookie Consent','cookie_consent','fa-cookie-bite')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-amber)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-amber-500/10 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/20 peer-checked:bg-amber-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- v6.0 SOCMINT -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-red-600/15 text-red-400"><i class="fas fa-skull-crossbones"></i></div><span class="cat-label">SOCMINT & Threat Intel (v6.0)</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Social Media Intel','social_intel','fa-users'),('Social Extractor','social_extract','fa-share-alt'),('Ransomware Check','ransomware_check','fa-virus'),('Ransom Groups','ransom_groups','fa-skull'),('Recent Victims','ransom_victims','fa-list')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#dc2626">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-red-600/10 flex items-center justify-center text-red-400 group-hover:bg-red-600/20 peer-checked:bg-red-600 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- v6.1.0 Enhanced Analysis -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-emerald-500/15 text-emerald-400"><i class="fas fa-chart-pie"></i></div><span class="cat-label">Enhanced Analysis (v6.1 — 100% Local)</span><span class="px-2 py-0.5 text-[0.55rem] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 rounded-full">NEW</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Security Score','security_posture','fa-gauge-high'),('Attack Vectors','attack_vectors','fa-route'),('Smart Summary','smart_summary','fa-wand-magic-sparkles'),('HTTP Fingerprint','http_fingerprint','fa-fingerprint'),('Input Validation','input_validation','fa-keyboard'),('CSP Analysis','csp_analysis','fa-shield-halved'),('Recon Detection','recon_detection','fa-user-secret'),('JS Complexity','js_complexity','fa-file-code'),('Session Analysis','session_analysis','fa-id-badge'),('Rate Limiting','rate_limiting','fa-tachometer-alt'),('Cache Analysis','cache_analysis','fa-box-archive'),('Form Security','form_security','fa-wpforms'),('Meta Tags','meta_tags','fa-tags')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-green)">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:bg-emerald-500/20 peer-checked:bg-emerald-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Active Testing v3.0 -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-pink-500/15 text-pink-400"><i class="fas fa-bolt"></i></div><span class="cat-label">Active Security Testing (v3.0 — Requires Auth)</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Auth Testing','auth_test','fa-key'),('API Security','api_security','fa-plug'),('XXE Detection','xxe_test','fa-code'),('SSRF Detection','ssrf_test','fa-network-wired'),('Open Redirects','redirect_test','fa-share'),('Header Injection','header_test','fa-heading')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#ec4899">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-pink-500/10 flex items-center justify-center text-pink-400 group-hover:bg-pink-500/20 peer-checked:bg-pink-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            <p class="text-[0.65rem] text-pink-400/60 mt-2 ml-1"><i class="fas fa-exclamation-triangle mr-1"></i>Requires explicit authorization and semi/active mode.</p>
+          </div>
+
+          <!-- Vuln & Monitoring v3.0 -->
+          <div class="mb-5">
+            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-orange-500/15 text-orange-400"><i class="fas fa-shield-virus"></i></div><span class="cat-label">Vulnerability & Monitoring (v3.0)</span></div></div>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {% for label, val, icon in [('Enhanced CVE','enhanced_cve','fa-bug-slash'),('Cert Monitor','cert_monitor','fa-certificate')] %}
+              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#f97316">
+                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+                <div class="w-7 h-7 rounded-md bg-orange-500/10 flex items-center justify-center text-orange-400 group-hover:bg-orange-500/20 peer-checked:bg-orange-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
+                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced Options -->
+        <details class="mb-8 group">
+          <summary class="cursor-pointer text-xs font-bold text-gray-500 hover:text-white transition-colors flex items-center gap-2 uppercase tracking-wider">
+            <i class="fas fa-chevron-right transition-transform group-open:rotate-90 text-purple-400"></i>
+            Advanced Options
+          </summary>
+          <div class="mt-4 grid md:grid-cols-2 gap-5 pl-5">
+            <div>
+              <label class="block text-xs font-semibold mb-2 text-gray-400"><i class="fas fa-list text-blue-400 mr-1"></i>Custom Subdomain Words</label>
+              <textarea name="extra_subdomains" rows="3" placeholder="admin&#10;portal&#10;staging" class="w-full rounded-xl filter-input px-4 py-3 text-sm text-white resize-none"></textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-2 text-gray-400"><i class="fas fa-folder-open text-amber-400 mr-1"></i>Custom Exposure Paths</label>
+              <textarea name="extra_exposures" rows="3" placeholder="/backup.tgz&#10;high::/admin/.env" class="w-full rounded-xl filter-input px-4 py-3 text-sm text-white resize-none"></textarea>
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold mb-2 text-gray-400"><i class="fas fa-code text-green-400 mr-1"></i>Workflow Steps (JSON)</label>
+              <textarea name="workflow_steps" rows="3" placeholder='[{"action":"click","selector":"#login"}]' class="w-full rounded-xl filter-input px-4 py-3 text-sm text-white font-mono resize-none"></textarea>
+            </div>
+          </div>
+        </details>
+
+        <!-- Submit Bar -->
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pt-6 border-t border-gray-700/30">
+          <div class="flex flex-wrap items-center gap-4">
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-500"><i class="fas fa-file-export mr-1"></i>Output:</span>
+              <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="view_mode" value="human" checked class="hidden peer">
+                <span class="px-2.5 py-1 text-[0.65rem] font-semibold rounded-md border border-gray-700 peer-checked:border-blue-500 peer-checked:bg-blue-500/15 peer-checked:text-blue-400 transition-all">Human</span>
+              </label>
+              <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="view_mode" value="json" class="hidden peer">
+                <span class="px-2.5 py-1 text-[0.65rem] font-semibold rounded-md border border-gray-700 peer-checked:border-green-500 peer-checked:bg-green-500/15 peer-checked:text-green-400 transition-all">JSON</span>
+              </label>
+            </div>
+            <div class="flex items-center gap-2">
+              <i class="fas fa-clock text-gray-600 text-xs"></i>
+              <input type="number" name="schedule_minutes" min="0" placeholder="0" class="w-16 rounded-md filter-input px-2 py-1.5 text-xs text-center" />
+              <span class="text-[0.65rem] text-gray-600">min interval</span>
+            </div>
+          </div>
+          <button type="submit" class="btn-aegis primary px-8 py-3 text-sm font-bold rounded-xl">
+            <i class="fas fa-crosshairs"></i> Start Hunt <i class="fas fa-arrow-right"></i>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-8 text-center text-[0.65rem] text-gray-700">
+      <p>AEGIS v7.0 — Advanced Threat Hunter & SOCMINT Swiss Army Knife</p>
+      <p class="mt-0.5">For defensive use only.</p>
+    </footer>
+  </div>
+
+  <script>
+    // Module card selection
+    document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', function() {
+        this.closest('.module-select-card').classList.toggle('selected', this.checked);
+        updateCounter();
+      });
+    });
+
+    // Counter
+    function updateCounter() {
+      const all = document.querySelectorAll('.module-select-card input[type="checkbox"]');
+      const checked = document.querySelectorAll('.module-select-card input[type="checkbox"]:checked');
+      const counter = document.getElementById('moduleCounter');
+      document.getElementById('selectedCount').textContent = checked.length;
+      document.getElementById('totalModules').textContent = all.length;
+      counter.style.display = checked.length > 0 ? '' : 'none';
+    }
+    updateCounter();
+
+    // Category selection
+    window.selectCategory = function(btn, checked) {
+      const wrapper = btn.closest('.mb-5');
+      wrapper.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = checked; cb.dispatchEvent(new Event('change')); });
+    };
+
+    // Presets
+    const presets = {
+      recon: ["crawler","tech","headers","sec_headers","dns","whois","archive","urlscan","github","code_scan","security_txt","robots_txt","securitytrails","signatures","cve_alerts","owasp_top10"],
+      passive: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","virustotal","urlscan","otx","hibp","shodan","greynoise","abuseipdb","cloud_assets","owasp_top10"],
+      semi: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","screenshot","virustotal","urlscan","otx","code_scan","hibp","shodan","greynoise","abuseipdb","exposure_checks","fuzzer","workflow","sandbox","owasp_top10"]
+    };
+    document.getElementById('presetSelect').addEventListener('change', (e) => {
+      const vals = presets[e.target.value] || [];
+      document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => { cb.checked = false; cb.closest('.module-select-card').classList.remove('selected'); });
+      vals.forEach(v => {
+        const cb = document.querySelector(`input[name="services"][value="${v}"]`);
+        if (cb) { cb.checked = true; cb.closest('.module-select-card').classList.add('selected'); }
+      });
+      if (e.target.value === 'semi') document.querySelector('select[name="mode"]').value = 'semi';
+      updateCounter();
+    });
+
+    // Select All / Clear All
+    document.getElementById('selectAll').addEventListener('click', () => {
+      document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => { cb.checked = true; cb.closest('.module-select-card').classList.add('selected'); });
+      updateCounter();
+    });
+    document.getElementById('clearAll').addEventListener('click', () => {
+      document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => { cb.checked = false; cb.closest('.module-select-card').classList.remove('selected'); });
+      updateCounter();
+    });
+
+    // HTMX loading state
+    document.body.addEventListener('htmx:beforeSend', function(e) {
+      if(e.detail.elt.id === "scanForm") {
+        const btn = document.querySelector("button[type='submit']");
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Initializing...';
+        btn.disabled = true;
+      }
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); document.getElementById('scanForm').submit(); }
+    });
+  </script>
+</body>
+</html>

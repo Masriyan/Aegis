@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AEGIS — Threat Hunt Results</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/aegis.css">
+</head>
+<body class="aegis-dark">
+
+  <!-- Particle Field -->
+  <div class="particle-field">
+    <div class="dot" style="left:8%;animation-delay:0s"></div>
+    <div class="dot" style="left:22%;animation-delay:3s;background:var(--accent-purple)"></div>
+    <div class="dot" style="left:38%;animation-delay:6s"></div>
+    <div class="dot" style="left:55%;animation-delay:1.5s;background:var(--accent-cyan)"></div>
+    <div class="dot" style="left:72%;animation-delay:4s;background:var(--accent-purple)"></div>
+    <div class="dot" style="left:88%;animation-delay:8s"></div>
+    <div class="dot" style="left:15%;animation-delay:11s;background:var(--accent-green)"></div>
+    <div class="dot" style="left:62%;animation-delay:14s"></div>
+  </div>
+
+  <div class="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-6">
+
+    <!-- ═══════════ EXECUTIVE DASHBOARD ═══════════ -->
+    <div class="glass-tier-1 mb-8 animate-fade-up">
+      <div class="exec-dashboard">
+        <div>
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+              <i class="fas fa-shield-halved text-white text-lg"></i>
+            </div>
+            <div>
+              <h1 class="text-2xl md:text-3xl font-extrabold bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
+                Threat Hunt Results
+              </h1>
+              <div class="text-xs text-gray-500 font-medium">AEGIS v7.0 // Enterprise Analysis Engine</div>
+            </div>
+          </div>
+          <div class="exec-target">
+            <i class="fas fa-crosshairs mr-2 text-cyan-500/70"></i>
+            <a href="{{ url }}" target="_blank">{{ url }}</a>
+          </div>
+          <div class="exec-timestamp">
+            <i class="fas fa-clock mr-1"></i> Scanned: {{ results.get('_meta', {}).get('scan_date', 'N/A') }}
+            {% if results.get('_meta', {}).get('total_seconds') %}
+            · Duration: {{ results.get('_meta', {}).get('total_seconds') }}s
+            {% endif %}
+            · Modules: {{ results.get('_meta', {}).get('module_times', {})|length }}
+          </div>
+        </div>
+
+        <!-- Risk Gauge -->
+        {% if results.get('_summary') %}
+        {% set rs = results['_summary']['risk_score'] %}
+        {% set rl = results['_summary']['risk_level'] %}
+        {% set gc = '#ef4444' if rl == 'critical' else '#f97316' if rl == 'high' else '#f59e0b' if rl == 'medium' else '#10b981' %}
+        <div class="risk-gauge" style="--gauge-color: {{ gc }}">
+          <svg width="140" height="140" viewBox="0 0 140 140">
+            <circle class="gauge-bg" cx="70" cy="70" r="58"></circle>
+            <circle class="gauge-fill" cx="70" cy="70" r="58"
+                    stroke="{{ gc }}"
+                    stroke-dasharray="{{ 364.4 }}"
+                    stroke-dashoffset="{{ 364.4 - (364.4 * rs / 100) }}">
+            </circle>
+          </svg>
+          <div class="gauge-value" style="color: {{ gc }}">{{ rs }}</div>
+          <div class="gauge-label {% if rl == 'critical' %}pulse-critical{% endif %}"
+               style="background: {{ gc }}20; color: {{ gc }}">{{ rl|upper }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ═══════════ KEY METRICS ═══════════ -->
+    {% if results.get('_summary') %}
+    <div class="metrics-grid mb-8 animate-fade-up animate-delay-1">
+      <div class="metric-tile" style="--tile-accent: var(--accent-green)">
+        <i class="fas fa-sitemap tile-icon"></i>
+        <div class="tile-label">Subdomains</div>
+        <div class="tile-value" data-count="{{ results['_summary']['subdomains'] }}">{{ results['_summary']['subdomains'] }}</div>
+      </div>
+      <div class="metric-tile" style="--tile-accent: var(--accent-amber)">
+        <i class="fas fa-shield-xmark tile-icon"></i>
+        <div class="tile-label">Missing Headers</div>
+        <div class="tile-value" data-count="{{ results['_summary']['missing_sec_headers'] }}">{{ results['_summary']['missing_sec_headers'] }}</div>
+      </div>
+      <div class="metric-tile" style="--tile-accent: var(--accent-red)">
+        <i class="fas fa-virus tile-icon"></i>
+        <div class="tile-label">VT Malicious</div>
+        <div class="tile-value" data-count="{{ results['_summary']['vt_malicious'] }}">{{ results['_summary']['vt_malicious'] }}</div>
+      </div>
+      <div class="metric-tile" style="--tile-accent: var(--accent-cyan)">
+        <i class="fas fa-clock tile-icon"></i>
+        <div class="tile-label">Duration</div>
+        <div class="tile-value">{{ results.get('_meta', {}).get('total_seconds', '-') }}s</div>
+      </div>
+      <div class="metric-tile" style="--tile-accent: var(--accent-purple)">
+        <i class="fas fa-puzzle-piece tile-icon"></i>
+        <div class="tile-label">Modules Run</div>
+        <div class="tile-value">{{ results.get('_meta', {}).get('module_times', {})|length }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════ THREAT LANDSCAPE CHARTS ═══════════ -->
+    <div class="glass-tier-2 p-6 mb-8 animate-fade-up animate-delay-2">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+          <i class="fas fa-chart-pie text-purple-400"></i> Threat Landscape Analysis
+        </h3>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-container"><canvas id="riskChart"></canvas></div>
+        <div class="chart-container"><canvas id="coverageChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ═══════════ ACTION BAR ═══════════ -->
+    <div class="glass-tier-2 mb-6 animate-fade-up animate-delay-3">
+      <div class="action-bar">
+        <div class="action-group">
+          <button id="btnHuman" class="btn-aegis {% if view_mode == 'human' %}active{% else %}secondary{% endif %}">
+            <i class="fas fa-eye"></i> Intelligence
+          </button>
+          <button id="btnSitrep" class="btn-aegis {% if view_mode == 'sitrep' %}active{% else %}secondary{% endif %}">
+            <i class="fas fa-file-contract"></i> SITREP
+          </button>
+          <button id="btnJSON" class="btn-aegis {% if view_mode == 'json' %}active{% else %}secondary{% endif %}">
+            <i class="fas fa-code"></i> Raw JSON
+          </button>
+        </div>
+        <div class="action-group">
+          {% if scan_id %}
+          <a href="/view/{{ scan_id }}" class="btn-aegis secondary"><i class="fas fa-link"></i> Permalink</a>
+          <a href="/graph/{{ scan_id }}" class="btn-aegis secondary"><i class="fas fa-diagram-project"></i> Graph</a>
+          {% endif %}
+          <a href="/export/json" class="btn-aegis secondary"><i class="fas fa-file-code"></i> JSON</a>
+          <a href="/export/csv" class="btn-aegis secondary"><i class="fas fa-file-csv"></i> CSV</a>
+          <a href="/export/docx" class="btn-aegis secondary"><i class="fas fa-file-word"></i> DOCX</a>
+          {% if pdf_available %}
+          <a href="/export/pdf" class="btn-aegis primary"><i class="fas fa-file-pdf"></i> PDF</a>
+          {% endif %}
+          <div class="relative group inline-block">
+            <button class="btn-aegis secondary"><i class="fas fa-server"></i> SIEM</button>
+            <div class="absolute right-0 mt-2 w-48 glass-tier-2 p-2 hidden group-hover:block z-50 space-y-1">
+              <a href="/export/splunk-cim" class="block px-3 py-2 rounded-lg text-sm hover:bg-white/5 text-gray-300">Splunk CIM</a>
+              <a href="/export/qradar-leef" class="block px-3 py-2 rounded-lg text-sm hover:bg-white/5 text-gray-300">QRadar LEEF</a>
+              <a href="/export/elastic-ecs" class="block px-3 py-2 rounded-lg text-sm hover:bg-white/5 text-gray-300">Elastic ECS</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ FILTER & CONTROLS ═══════════ -->
+    <div class="flex flex-wrap items-center gap-3 mb-6">
+      <div class="flex-1 min-w-[200px] relative">
+        <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+        <input id="resultFilter" type="text" placeholder="Filter results..." class="filter-input pl-11">
+      </div>
+      <button id="btnExpandAll" class="btn-aegis secondary"><i class="fas fa-expand"></i> Expand</button>
+      <button id="btnCollapseAll" class="btn-aegis secondary"><i class="fas fa-compress"></i> Collapse</button>
+    </div>
+
+    <!-- ═══════════ SITREP VIEW ═══════════ -->
+    <div id="sitrepView" class="{% if view_mode != 'sitrep' %}hidden{% endif %}">
+      <div class="glass-tier-1 p-8 sitrep-container">
+        <div class="sitrep-header">
+          <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest mb-4"
+               style="background: {% if results.get('_summary', {}).get('risk_level') == 'critical' %}rgba(239,68,68,0.15);color:#ef4444{% elif results.get('_summary', {}).get('risk_level') == 'high' %}rgba(249,115,22,0.15);color:#f97316{% elif results.get('_summary', {}).get('risk_level') == 'medium' %}rgba(245,158,11,0.15);color:#f59e0b{% else %}rgba(16,185,129,0.15);color:#10b981{% endif %}">
+            <i class="fas fa-shield-halved"></i> Executive Intelligence Brief
+          </div>
+          <h2>Security Assessment: <span class="text-cyan-400">{{ url }}</span></h2>
+          <p class="text-sm text-gray-500 mt-2">Classification: CONFIDENTIAL · Generated by AEGIS v7.0</p>
+        </div>
+
+        <!-- SITREP Risk Overview -->
+        <div class="sitrep-section">
+          <h3><i class="fas fa-gauge-high text-red-400"></i> Risk Assessment</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="glass-tier-3 p-4 text-center">
+              <div class="text-3xl font-black" style="color: {% if results.get('_summary', {}).get('risk_level') == 'critical' %}#ef4444{% elif results.get('_summary', {}).get('risk_level') == 'high' %}#f97316{% elif results.get('_summary', {}).get('risk_level') == 'medium' %}#f59e0b{% else %}#10b981{% endif %}">
+                {{ results.get('_summary', {}).get('risk_score', 'N/A') }}
+              </div>
+              <div class="text-xs text-gray-500 mt-1">Risk Score</div>
+            </div>
+            <div class="glass-tier-3 p-4 text-center">
+              <div class="text-3xl font-black text-amber-400">{{ results.get('_summary', {}).get('missing_sec_headers', 0) }}</div>
+              <div class="text-xs text-gray-500 mt-1">Missing Headers</div>
+            </div>
+            <div class="glass-tier-3 p-4 text-center">
+              <div class="text-3xl font-black text-red-400">{{ results.get('_summary', {}).get('vt_malicious', 0) }}</div>
+              <div class="text-xs text-gray-500 mt-1">Malicious Signals</div>
+            </div>
+            <div class="glass-tier-3 p-4 text-center">
+              <div class="text-3xl font-black text-green-400">{{ results.get('_summary', {}).get('subdomains', 0) }}</div>
+              <div class="text-xs text-gray-500 mt-1">Subdomains</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SITREP Key Highlights -->
+        <div class="sitrep-section">
+          <h3><i class="fas fa-bullseye text-amber-400"></i> Key Highlights</h3>
+          <ul class="space-y-2 text-sm text-gray-300">
+            <li class="flex items-start gap-2"><span class="sev-badge info mt-0.5">INFO</span> Total subdomains identified: <strong class="text-white">{{ results.get('_summary', {}).get('subdomains', 0) }}</strong></li>
+            <li class="flex items-start gap-2"><span class="sev-badge warn mt-0.5">WARN</span> Missing security headers: <strong class="text-white">{{ results.get('_summary', {}).get('missing_sec_headers', 0) }}</strong></li>
+            <li class="flex items-start gap-2"><span class="sev-badge {% if results.get('_summary', {}).get('vt_malicious', 0) > 0 %}critical{% else %}ok{% endif %} mt-0.5">{{ 'ALERT' if results.get('_summary', {}).get('vt_malicious', 0) > 0 else 'CLEAR' }}</span> VirusTotal malicious signals: <strong class="{% if results.get('_summary', {}).get('vt_malicious', 0) > 0 %}text-red-400{% else %}text-green-400{% endif %}">{{ results.get('_summary', {}).get('vt_malicious', 0) }}</strong></li>
+            {% if results.get('threat_intel_correlation', {}).get('mitre_attack') %}
+            <li class="flex items-start gap-2"><span class="sev-badge high mt-0.5">HIGH</span> MITRE ATT&CK techniques identified: <strong class="text-red-400">{{ results.get('threat_intel_correlation').get('mitre_attack')|length }}</strong></li>
+            {% endif %}
+          </ul>
+        </div>
+
+        <!-- SITREP Narrative -->
+        {% if results.get('report_narrative') %}
+        <div class="sitrep-section">
+          <h3><i class="fas fa-file-lines text-blue-400"></i> Generated Narrative</h3>
+          <div class="prose prose-invert max-w-none text-gray-300 glass-tier-3 p-6 rounded-xl text-sm leading-relaxed">
+            {{ results.get('report_narrative') | safe }}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- SITREP Recommendations -->
+        <div class="sitrep-section border-none">
+          <h3><i class="fas fa-clipboard-check text-green-400"></i> Recommended Actions</h3>
+          <div class="space-y-2 text-sm">
+            {% if results.get('_summary', {}).get('missing_sec_headers', 0) > 0 %}
+            <div class="glass-tier-3 p-3 flex items-center gap-3 rounded-xl">
+              <span class="sev-badge high">P1</span>
+              <span class="text-gray-300">Implement missing security headers (CSP, HSTS, X-Frame-Options)</span>
+            </div>
+            {% endif %}
+            {% if results.get('_summary', {}).get('vt_malicious', 0) > 0 %}
+            <div class="glass-tier-3 p-3 flex items-center gap-3 rounded-xl">
+              <span class="sev-badge critical">P0</span>
+              <span class="text-gray-300">Investigate VirusTotal malicious detections immediately</span>
+            </div>
+            {% endif %}
+            <div class="glass-tier-3 p-3 flex items-center gap-3 rounded-xl">
+              <span class="sev-badge info">P3</span>
+              <span class="text-gray-300">Review full scan results and validate findings against production environment</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ MODULE TIMINGS ═══════════ -->
+    {% if results.get('_meta', {}).get('module_times') %}
+    <details class="module-result mb-6" style="--module-accent: var(--accent-cyan)">
+      <summary class="module-title">
+        <div class="mod-icon" style="background:rgba(6,182,212,0.1);color:var(--accent-cyan)"><i class="fas fa-stopwatch"></i></div>
+        Module Performance
+        <span class="sev-badge info ml-2">{{ results['_meta']['module_times']|length }} modules</span>
+        <i class="fas fa-chevron-down mod-chevron"></i>
+      </summary>
+      <div class="module-body">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {% for m, secs in results['_meta']['module_times'].items() %}
+          <div class="flex justify-between items-center glass-tier-3 px-3 py-2">
+            <span class="text-xs text-gray-400">{{ m.replace('_', ' ').title() }}</span>
+            <span class="text-xs font-mono font-bold text-cyan-400">{{ secs }}s</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
+    {% endif %}
+
+    <!-- ═══════════ HUMAN VIEW — MODULE RESULTS ═══════════ -->
+    <div id="humanView" class="{% if view_mode != 'human' %}hidden{% endif %} space-y-4">
+      {% for key, value in results.items() if value and not key.startswith('_') %}
+      <details class="module-result" style="--module-accent: {% if key in ['ransomware_check','subdomain_takeover','xxe_detection','ssrf_detection'] %}var(--accent-red){% elif key in ['js_secrets','exposure_checks','cors','header_injection','open_redirect','virustotal'] %}#f97316{% elif key in ['sec_headers','cve_alerts','owasp_top10','ssl_tls','cookie_audit','waf_detect'] %}var(--accent-amber){% else %}var(--accent-blue){% endif %}" {% if key in ['ransomware_check','subdomain_takeover','js_secrets','exposure_checks'] %}open{% endif %}>
+        <summary class="module-title">
+          <div class="mod-icon" style="background: {% if key in ['ransomware_check','subdomain_takeover','xxe_detection','ssrf_detection'] %}rgba(239,68,68,0.12);color:var(--accent-red){% elif key in ['js_secrets','exposure_checks','cors','virustotal'] %}rgba(249,115,22,0.12);color:#f97316{% elif key in ['sec_headers','cve_alerts','ssl_tls'] %}rgba(245,158,11,0.12);color:var(--accent-amber){% elif key in ['crawler','tech','dns_records','whois_lookup'] %}rgba(6,182,212,0.12);color:var(--accent-cyan){% else %}rgba(59,130,246,0.12);color:var(--accent-blue){% endif %}">
+            <i class="fas {% if key == 'crawler' %}fa-spider{% elif key == 'http_headers' %}fa-server{% elif key == 'tech' %}fa-microchip{% elif key == 'sec_headers' %}fa-shield{% elif key == 'tls' %}fa-lock{% elif key == 'dns_records' %}fa-diagram-project{% elif key == 'whois_lookup' %}fa-address-card{% elif key == 'subdomain_scan' %}fa-sitemap{% elif key == 'virustotal' %}fa-virus{% elif key == 'urlscan' %}fa-eye{% elif key == 'otx' %}fa-user-secret{% elif key == 'shodan' %}fa-satellite-dish{% elif key == 'exposure_checks' %}fa-door-open{% elif key == 'owasp_top10' %}fa-list-check{% elif key == 'js_secrets' %}fa-key{% elif key == 'ransomware_check' %}fa-skull{% elif key == 'ssl_tls' %}fa-lock{% elif key == 'email_security' %}fa-envelope{% elif key == 'port_scan' %}fa-network-wired{% elif key == 'cors' %}fa-link-slash{% elif key == 'cookie_audit' %}fa-cookie-bite{% elif key == 'report_narrative' %}fa-file-lines{% elif key == 'social_intel' %}fa-users{% elif key == 'mitre_attack' %}fa-crosshairs{% elif key == 'attack_map' %}fa-diagram-project{% elif key == 'scan_diff' %}fa-code-compare{% elif key == 'compliance_check' %}fa-clipboard-check{% elif key == 'privacy_detect' %}fa-user-secret{% elif key == 'ransomware_check' %}fa-virus{% else %}fa-cube{% endif %}"></i>
+          </div>
+          <span>{{ key.replace('_', ' ')|title }}</span>
+          {% if value is mapping and value.get('error') %}
+          <span class="sev-badge critical ml-2">ERROR</span>
+          {% endif %}
+          <i class="fas fa-chevron-down mod-chevron"></i>
+        </summary>
+        <div class="module-body">
+
+        {% if value is mapping and value.get('error') %}
+          <div class="glass-tier-3 p-3 rounded-xl border border-red-500/20">
+            <span class="text-red-400 text-sm"><i class="fas fa-exclamation-circle mr-2"></i>{{ value.error }}</span>
+          </div>
+
+        {% elif key == 'crawler' %}
+          {% if value.get('stats') %}
+          <div class="flex gap-4 mb-4 text-sm">
+            <span class="text-gray-400">Pages: <span class="text-cyan-400 font-bold">{{ value.stats.pages_scanned }}</span></span>
+            <span class="text-gray-400">Errors: <span class="text-red-400 font-bold">{{ value.stats.errors }}</span></span>
+          </div>
+          {% endif %}
+          <div class="grid md:grid-cols-2 gap-3">
+            <div class="glass-tier-3 p-3 rounded-xl">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-gray-300"><i class="fas fa-file-lines mr-2 text-blue-400"></i>Pages</span>
+                <span class="sev-badge ok">{{ value.urls|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-xs cursor-pointer">View</summary>
+                <ul class="list-disc pl-5 mt-2 text-xs max-h-40 overflow-y-auto">{% for u in value.urls[:30] %}<li><a href="{{ u }}" target="_blank" class="hover:underline text-gray-400 truncate block">{{ u }}</a></li>{% endfor %}</ul>
+              </details>
+            </div>
+            <div class="glass-tier-3 p-3 rounded-xl">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-gray-300"><i class="fas fa-external-link mr-2 text-purple-400"></i>External</span>
+                <span class="sev-badge warn">{{ value.external_links|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-xs cursor-pointer">View</summary>
+                <ul class="list-disc pl-5 mt-2 text-xs max-h-40 overflow-y-auto">{% for l in value.external_links[:30] %}<li><a href="{{ l }}" target="_blank" class="hover:underline text-gray-400 truncate block">{{ l }}</a></li>{% endfor %}</ul>
+              </details>
+            </div>
+            {% if value.get('emails') %}
+            <div class="glass-tier-3 p-3 rounded-xl">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-gray-300"><i class="fas fa-envelope mr-2 text-green-400"></i>Emails</span>
+                <span class="sev-badge {% if value.emails|length > 0 %}ok{% else %}info{% endif %}">{{ value.emails|length }}</span>
+              </div>
+              {% if value.emails %}<div class="text-xs text-gray-400">{% for e in value.emails[:10] %}<div class="py-0.5">{{ e }}</div>{% endfor %}</div>{% endif %}
+            </div>
+            {% endif %}
+            {% if value.get('js_files') %}
+            <div class="glass-tier-3 p-3 rounded-xl">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-gray-300"><i class="fab fa-js mr-2 text-yellow-300"></i>JS Files</span>
+                <span class="sev-badge info">{{ value.js_files|length }}</span>
+              </div>
+              <details><summary class="text-blue-400 text-xs cursor-pointer">View</summary>
+                <ul class="list-disc pl-5 mt-2 text-xs max-h-32 overflow-y-auto">{% for js in value.js_files[:15] %}<li class="truncate"><a href="{{ js }}" target="_blank" class="text-gray-400 hover:underline">{{ js }}</a></li>{% endfor %}</ul>
+              </details>
+            </div>
+            {% endif %}
+          </div>
+
+        {% elif key == 'http_headers' %}
+          <table class="aegis-table"><thead><tr><th>Header</th><th>Value</th></tr></thead>
+          <tbody>{% for k,v in value.items() %}<tr><td class="font-mono text-xs font-semibold text-blue-300">{{ k }}</td><td class="font-mono text-xs">{{ v }}</td></tr>{% endfor %}</tbody></table>
+
+        {% elif key == 'tech' and value.get('stack') %}
+          <div class="flex flex-wrap gap-2">
+            {% for t in value.stack %}
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-tier-3 text-xs font-semibold text-cyan-300">
+              <i class="fas fa-microchip text-cyan-500/50"></i>{{ t }}
+            </span>
+            {% endfor %}
+          </div>
+
+        {% elif key == 'sec_headers' and value.get('rows') %}
+          <table class="aegis-table"><thead><tr><th>Header</th><th>Status</th><th>Details</th></tr></thead>
+          <tbody>{% for row in value.rows %}<tr>
+            <td class="font-semibold">{{ row.header }}</td>
+            <td><span class="sev-badge {{ 'ok' if row.status == 'OK' else 'warn' if row.status == 'WARN' else 'critical' }}">{{ row.status }}</span></td>
+            <td class="text-xs">{{ row.message }}</td>
+          </tr>{% endfor %}</tbody></table>
+
+        {% elif key == 'tls' and value.get('subject') %}
+          <table class="aegis-table">
+            <tr><td class="font-semibold text-gray-300">Subject</td><td>{{ value.subject.get('commonName', 'N/A') }}</td></tr>
+            <tr><td class="font-semibold text-gray-300">Issuer</td><td>{{ value.issuer.get('commonName', 'N/A') }}</td></tr>
+            <tr><td class="font-semibold text-gray-300">Valid From</td><td>{{ value.not_before }}</td></tr>
+            <tr><td class="font-semibold text-gray-300">Valid Until</td><td>{{ value.not_after }}</td></tr>
+          </table>
+
+        {% elif key == 'dns_records' %}
+          <table class="aegis-table"><thead><tr><th>Type</th><th>Value</th></tr></thead>
+          <tbody>{% for rtype, rvals in value.items() %}{% for rv in rvals %}<tr><td><span class="sev-badge info">{{ rtype }}</span></td><td class="font-mono text-xs">{{ rv }}</td></tr>{% endfor %}{% endfor %}</tbody></table>
+
+        {% elif key == 'whois_lookup' %}
+          <table class="aegis-table">{% for k, v in value.items() if k != 'error' and v %}<tr><td class="font-semibold text-gray-300">{{ k|replace('_',' ')|title }}</td><td>{{ v }}</td></tr>{% endfor %}</table>
+
+        {% elif key == 'subdomain_scan' and value.get('rows') %}
+          <div class="mb-3"><a href="/export/subdomains.csv" class="btn-aegis secondary text-xs"><i class="fas fa-download mr-1"></i>Export CSV</a></div>
+          <table class="aegis-table"><thead><tr><th>Subdomain</th><th>Source</th><th>A/AAAA</th><th>CNAME</th></tr></thead>
+          <tbody>{% for r in value.rows[:500] %}<tr>
+            <td class="font-mono text-xs text-cyan-300">{{ r.subdomain }}</td><td class="text-xs">{{ r.source }}</td>
+            <td class="font-mono text-xs">{{ (r.a_records or [])|join(', ') }}</td><td class="font-mono text-xs">{{ r.cname or '' }}</td>
+          </tr>{% endfor %}</tbody></table>
+
+        {% elif key == 'virustotal' and value.get('data', {}).get('attributes') %}
+          {% set stats = value.get('data', {}).get('attributes', {}).get('last_analysis_stats', {}) %}
+          <div class="grid grid-cols-3 gap-3">
+            <div class="glass-tier-3 p-4 text-center rounded-xl"><div class="text-2xl font-black text-red-400">{{ stats.get('malicious', 0) }}</div><div class="text-xs text-gray-500">Malicious</div></div>
+            <div class="glass-tier-3 p-4 text-center rounded-xl"><div class="text-2xl font-black text-amber-400">{{ stats.get('suspicious', 0) }}</div><div class="text-xs text-gray-500">Suspicious</div></div>
+            <div class="glass-tier-3 p-4 text-center rounded-xl"><div class="text-2xl font-black text-green-400">{{ stats.get('harmless', 0) }}</div><div class="text-xs text-gray-500">Harmless</div></div>
+          </div>
+
+        {% elif key == 'owasp_top10' %}
+          <table class="aegis-table"><thead><tr><th>Category</th><th>Status</th><th>Evidence</th></tr></thead>
+          <tbody>{% for row in value.get('rows', []) %}<tr>
+            <td class="font-semibold text-sm">{{ row.category }}</td>
+            <td><span class="sev-badge {{ 'ok' if row.status == 'pass' else 'critical' if row.status == 'fail' else 'warn' }}">{{ row.status|upper }}</span></td>
+            <td class="text-xs">{{ row.evidence }}</td>
+          </tr>{% endfor %}</tbody></table>
+
+        {% elif key == 'exposure_checks' and value.get('rows') %}
+          <table class="aegis-table"><thead><tr><th>Path</th><th>Severity</th><th>Status</th><th>Details</th></tr></thead>
+          <tbody>{% for row in value.rows %}<tr>
+            <td><a href="{{ row.url }}" target="_blank" class="text-blue-400 hover:underline font-mono text-xs">{{ row.path }}</a></td>
+            <td><span class="sev-badge {{ 'critical' if row.severity == 'high' else 'medium' if row.severity == 'medium' else 'low' }}">{{ row.severity|capitalize }}</span></td>
+            <td class="text-xs">{{ row.status }}</td>
+            <td class="text-xs">{{ row.description }}</td>
+          </tr>{% endfor %}</tbody></table>
+
+        {% elif key == 'ssl_tls' %}
+          {% if value.get('error') %}
+            <p class="text-red-400 text-sm">{{ value.error }}</p>
+          {% else %}
+            <div class="flex items-center gap-4 mb-4">
+              <div class="text-5xl font-black {% if value.get('grade') == 'A' %}text-green-400{% elif value.get('grade') == 'B' %}text-blue-400{% elif value.get('grade') == 'C' %}text-amber-400{% else %}text-red-400{% endif %}">{{ value.get('grade', 'F') }}</div>
+              <div>
+                <div class="text-sm text-gray-400">SSL/TLS Score: <span class="font-bold text-white">{{ value.get('score', 0) }}/100</span></div>
+                <div class="text-sm text-gray-400">Protocol: <span class="text-cyan-300">{{ value.get('protocol', 'Unknown') }}</span></div>
+              </div>
+            </div>
+            <table class="aegis-table">
+              <tr><td class="font-semibold text-gray-300">Cipher Suite</td><td class="font-mono text-xs">{{ value.get('cipher_suite', 'N/A') }}</td></tr>
+              <tr><td class="font-semibold text-gray-300">Subject</td><td>{{ value.get('certificate', {}).get('subject', {}).get('commonName', 'N/A') }}</td></tr>
+              <tr><td class="font-semibold text-gray-300">Issuer</td><td>{{ value.get('certificate', {}).get('issuer', {}).get('organizationName', 'N/A') }}</td></tr>
+              <tr><td class="font-semibold text-gray-300">Valid Until</td><td>{{ value.get('certificate', {}).get('not_after', 'N/A') }}</td></tr>
+              <tr><td class="font-semibold text-gray-300">Days Until Expiry</td><td class="{% if value.get('certificate', {}).get('days_until_expiry', 999) < 30 %}text-red-400 font-bold{% else %}text-green-400{% endif %}">{{ value.get('certificate', {}).get('days_until_expiry', 'N/A') }}</td></tr>
+            </table>
+            {% if value.get('issues') %}
+            <div class="mt-3 glass-tier-3 p-3 rounded-xl border border-amber-500/20">
+              <div class="text-xs font-bold text-amber-400 mb-1"><i class="fas fa-exclamation-triangle mr-1"></i>Issues:</div>
+              <ul class="text-xs text-gray-400 list-disc pl-4 space-y-0.5">{% for i in value.issues %}<li>{{ i }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+          {% endif %}
+
+        {% elif key == 'ransomware_check' %}
+          <div class="flex items-center gap-3 mb-3">
+            {% if value.found %}
+              <span class="sev-badge critical pulse-critical"><i class="fas fa-exclamation-triangle mr-1"></i>FOUND IN VICTIM LIST</span>
+            {% else %}
+              <span class="sev-badge ok"><i class="fas fa-check mr-1"></i>Not found</span>
+            {% endif %}
+            <span class="text-xs text-gray-500">Checked: {{ value.sources_checked|join(', ') }}</span>
+          </div>
+          {% if value.matches %}
+          <table class="aegis-table"><thead><tr><th>Source</th><th>Group</th><th>Date</th><th>Country</th></tr></thead>
+          <tbody>{% for m in value.matches %}<tr>
+            <td>{{ m.source }}</td><td class="text-red-400 font-bold">{{ m.group }}</td><td>{{ m.date }}</td><td>{{ m.country }}</td>
+          </tr>{% endfor %}</tbody></table>
+          {% endif %}
+
+        {% elif key == 'js_secrets' %}
+          <p class="text-xs text-gray-500 mb-3">JS files scanned: {{ value.get('js_files_scanned', 0) }}</p>
+          {% if value.get('secrets_found') %}
+            <div class="flex items-center gap-2 mb-3"><span class="sev-badge critical"><i class="fas fa-key mr-1"></i>{{ value.secrets_found|length }} secrets exposed!</span></div>
+            <table class="aegis-table"><thead><tr><th>Type</th><th>Value</th><th>Severity</th></tr></thead>
+            <tbody>{% for s in value.secrets_found %}<tr>
+              <td>{{ s.type }}</td><td class="font-mono text-xs max-w-xs truncate">{{ s.value }}</td>
+              <td><span class="sev-badge {{ 'critical' if s.severity == 'critical' else 'high' }}">{{ s.severity }}</span></td>
+            </tr>{% endfor %}</tbody></table>
+          {% else %}
+            <p class="text-green-400 text-sm"><i class="fas fa-check mr-1"></i>No exposed secrets detected.</p>
+          {% endif %}
+
+        {% elif key == 'report_narrative' %}
+          <div class="space-y-4">
+            {% if value.get('executive_summary') %}
+            <div class="glass-tier-3 p-4 rounded-xl">
+              <h4 class="text-sm font-bold text-blue-400 mb-2"><i class="fas fa-file-alt mr-2"></i>Executive Summary</h4>
+              <p class="text-sm text-gray-300">{{ value.executive_summary }}</p>
+            </div>
+            {% endif %}
+            {% if value.get('key_findings') %}
+            <div class="glass-tier-3 p-4 rounded-xl">
+              <h4 class="text-sm font-bold text-amber-400 mb-2"><i class="fas fa-search mr-2"></i>Key Findings</h4>
+              <ul class="list-disc pl-5 text-sm text-gray-300 space-y-1">{% for f in value.key_findings %}<li>{{ f }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+            {% if value.get('recommendations') %}
+            <div class="glass-tier-3 p-4 rounded-xl">
+              <h4 class="text-sm font-bold text-green-400 mb-2"><i class="fas fa-clipboard-check mr-2"></i>Recommendations</h4>
+              <ul class="list-disc pl-5 text-sm text-gray-300 space-y-1">{% for r in value.recommendations %}<li>{{ r }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
+          </div>
+
+        {% else %}
+          {# Generic JSON fallback #}
+          <details open><summary class="text-blue-400 text-xs cursor-pointer font-semibold">View Data</summary>
+            <pre class="glass-tier-3 rounded-xl p-4 text-xs mt-2 overflow-x-auto max-h-96 text-gray-400">{{ value | tojson(indent=2) }}</pre>
+          </details>
+        {% endif %}
+
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+
+    <!-- ═══════════ JSON VIEW ═══════════ -->
+    <div id="jsonView" class="{% if view_mode != 'json' %}hidden{% endif %}">
+      <pre class="glass-tier-2 p-6 rounded-xl overflow-x-auto text-xs font-mono text-gray-400 max-h-screen">{{ results | tojson(indent=2) }}</pre>
+    </div>
+
+    <!-- ═══════════ FOOTER ═══════════ -->
+    <div class="text-center mt-10 flex items-center justify-center gap-4 mb-20">
+      <a href="/export/report" class="btn-aegis secondary"><i class="fas fa-file-alt mr-2"></i>Export Report</a>
+      <a href="/" class="btn-aegis primary"><i class="fas fa-arrow-left mr-2"></i>New Hunt</a>
+    </div>
+  </div>
+
+  <!-- ═══════════ STICKY SUMMARY NAV ═══════════ -->
+  {% if results.get('_summary') %}
+  <div class="sticky-summary" id="stickyNav">
+    <div class="sticky-score" style="color: {% if results['_summary']['risk_level'] == 'critical' %}#ef4444{% elif results['_summary']['risk_level'] == 'high' %}#f97316{% elif results['_summary']['risk_level'] == 'medium' %}#f59e0b{% else %}#10b981{% endif %}">
+      <i class="fas fa-shield-halved mr-1"></i>{{ results['_summary']['risk_score'] }}
+    </div>
+    <div class="sticky-divider"></div>
+    <div class="sticky-stat">Subs: <span>{{ results['_summary']['subdomains'] }}</span></div>
+    <div class="sticky-stat">Headers: <span class="text-amber-400">{{ results['_summary']['missing_sec_headers'] }}</span></div>
+    <div class="sticky-stat">VT: <span class="{% if results['_summary']['vt_malicious'] > 0 %}text-red-400{% else %}text-green-400{% endif %}">{{ results['_summary']['vt_malicious'] }}</span></div>
+    <div class="sticky-divider"></div>
+    <a href="#" onclick="window.scrollTo({top:0,behavior:'smooth'})" class="text-gray-400 hover:text-white text-xs"><i class="fas fa-arrow-up"></i></a>
+  </div>
+  {% endif %}
+
+  <!-- ═══════════ SCRIPTS ═══════════ -->
+  <script>
+    // View switching
+    const views = { human: document.getElementById('humanView'), sitrep: document.getElementById('sitrepView'), json: document.getElementById('jsonView') };
+    const btns = { human: document.getElementById('btnHuman'), sitrep: document.getElementById('btnSitrep'), json: document.getElementById('btnJSON') };
+    function switchView(v) {
+      Object.values(views).forEach(el => el && el.classList.add('hidden'));
+      Object.values(btns).forEach(b => { b && b.classList.remove('active'); b && b.classList.add('secondary'); });
+      if (views[v]) views[v].classList.remove('hidden');
+      if (btns[v]) { btns[v].classList.add('active'); btns[v].classList.remove('secondary'); }
+    }
+    Object.keys(btns).forEach(k => btns[k] && btns[k].addEventListener('click', () => switchView(k)));
+
+    // Filter
+    const filterInput = document.getElementById('resultFilter');
+    if (filterInput) {
+      filterInput.addEventListener('input', () => {
+        const q = filterInput.value.toLowerCase();
+        document.querySelectorAll('.module-result').forEach(c => {
+          c.style.display = c.innerText.toLowerCase().includes(q) ? '' : 'none';
+        });
+      });
+    }
+
+    // Expand / Collapse
+    const btnE = document.getElementById('btnExpandAll');
+    const btnC = document.getElementById('btnCollapseAll');
+    if (btnE) btnE.addEventListener('click', () => document.querySelectorAll('details').forEach(d => d.open = true));
+    if (btnC) btnC.addEventListener('click', () => document.querySelectorAll('details').forEach(d => d.open = false));
+
+    // Sticky nav show/hide on scroll
+    const sticky = document.getElementById('stickyNav');
+    if (sticky) {
+      let lastY = 0;
+      window.addEventListener('scroll', () => {
+        sticky.style.opacity = window.scrollY > 400 ? '1' : '0';
+        sticky.style.transform = window.scrollY > 400 ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(20px)';
+        lastY = window.scrollY;
+      });
+    }
+
+    // Charts
+    document.addEventListener('DOMContentLoaded', function() {
+      Chart.defaults.color = '#64748b';
+      Chart.defaults.borderColor = 'rgba(71,85,105,0.1)';
+
+      const ctxRisk = document.getElementById('riskChart');
+      if (ctxRisk) {
+        new Chart(ctxRisk.getContext('2d'), {
+          type: 'doughnut',
+          data: {
+            labels: ['Critical', 'High', 'Medium', 'Low'],
+            datasets: [{
+              data: [
+                {{ results.get('cve_alerts', {}).get('rows', [])|length }},
+                {{ results.get('_summary', {}).get('vt_malicious', 0) }},
+                {{ results.get('_summary', {}).get('missing_sec_headers', 0) }},
+                {{ results.get('_summary', {}).get('subdomains', 0) }}
+              ],
+              backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#3b82f6'],
+              borderWidth: 0, hoverOffset: 6
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'right', labels: { font: { family: 'Inter', size: 11 }, usePointStyle: true, pointStyleWidth: 8, padding: 16 } },
+              title: { display: true, text: 'Findings Distribution', color: '#94a3b8', font: { size: 13, weight: '600' } }
+            },
+            cutout: '72%'
+          }
+        });
+      }
+
+      const ctxCov = document.getElementById('coverageChart');
+      if (ctxCov) {
+        new Chart(ctxCov.getContext('2d'), {
+          type: 'radar',
+          data: {
+            labels: ['Recon', 'Network', 'Web Sec', 'Threat Intel', 'Compliance', 'SOCMINT'],
+            datasets: [{
+              label: 'Depth',
+              data: [
+                {{ 90 if results.get('subdomain_scan') else 20 }},
+                {{ 85 if results.get('port_scan') or results.get('dns_records') else 20 }},
+                {{ 95 if results.get('http_headers') or results.get('sec_headers') else 10 }},
+                {{ 80 if results.get('virustotal') or results.get('abuseipdb') else 0 }},
+                {{ 75 if results.get('privacy_detect') or results.get('compliance_check') else 0 }},
+                {{ 85 if results.get('social_intel') or results.get('social_extract') else 0 }}
+              ],
+              borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.12)',
+              pointBackgroundColor: '#8b5cf6', pointBorderColor: 'rgba(139,92,246,0.3)',
+              pointRadius: 4, borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { r: { angleLines: { color: 'rgba(71,85,105,0.15)' }, grid: { color: 'rgba(71,85,105,0.15)' }, pointLabels: { color: '#94a3b8', font: { size: 10, weight: '500' } }, ticks: { display: false } } },
+            plugins: { legend: { display: false }, title: { display: true, text: 'Security Coverage', color: '#94a3b8', font: { size: 13, weight: '600' } } }
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

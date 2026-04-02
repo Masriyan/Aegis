@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      
+  web:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - FLASK_HOST=0.0.0.0
+      - REDIS_URL=redis://redis:6379/0
+      # Provide your API keys here
+      # - VT_API_KEY=
+      # - SECURITYTRAILS_API_KEY=
+      # - SHODAN_API_KEY=
+    depends_on:
+      - redis
+    volumes:
+      - ./:/app:z
+
+  worker:
+    build: .
+    command: celery -A core.celery_app.celery_app worker --loglevel=info -c 4
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      # - VT_API_KEY=
+      # - SECURITYTRAILS_API_KEY=
+      # - SHODAN_API_KEY=
+    depends_on:
+      - redis
+    volumes:
+      - ./:/app:z
+
+volumes:
+  redis_data:

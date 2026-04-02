@@ -70,7 +70,7 @@ from urllib.parse import urljoin, urlparse, quote, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template_string, request, Response, g, make_response, jsonify
+from flask import Flask, render_template, render_template_string, request, Response, g, make_response, jsonify
 
 # Optional .env support
 try:
@@ -179,9 +179,14 @@ except ImportError:
     run_enhanced_modules = None
     ENHANCEMENTS_AVAILABLE = False
 
+from core.celery_app import celery_app
+from core.scanner import run_scan_task
+from celery.result import AsyncResult
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('AEGIS')
+logging.getLogger('whois').setLevel(logging.CRITICAL)
 
 # ---------------- Config ----------------
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -271,8 +276,19 @@ except ImportError:
 
 # ---------------- Flask & DB ----------------
 app = Flask(__name__)
+# Enable HTMX and SSE
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config.from_object(__name__)
 app.config["_processing_schedule"] = False
+
+# Register celery_app to use Flask app context
+redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+celery_app.conf.update(
+    broker_url=redis_url,
+    result_backend=redis_url,
+    **app.config
+)
+celery_app.app_context = app.app_context
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -320,6 +336,8 @@ INDEX_HTML = r"""
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AEGIS — Automated Enrichment &amp; Global Intelligence Scanner</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="https://unpkg.com/htmx.org/dist/ext/sse.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
@@ -621,13 +639,13 @@ INDEX_HTML = r"""
     <header class="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 fade-in">
       <div class="mb-4 md:mb-0">
         <div class="flex items-center gap-3 mb-2">
-          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue">
-            <i class="fas fa-shield-halved text-2xl text-white"></i>
+          <nav class="flex items-center justify-between z-10 relative">
+        <div class="flex items-center gap-3">
+          <div class="relative w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 glow-blue">
+            <i class="fas fa-shield-halved text-blue-400 text-xl"></i>
           </div>
-          <div>
-            <h1 class="text-3xl md:text-4xl font-bold gradient-title">AEGIS</h1>
-            <p class="text-xs text-gray-500 uppercase tracking-wider">by sudo3rs</p>
-          </div>
+          <h1 class="text-xl md:text-2xl font-bold tracking-wider gradient-title">AEGIS // OSINT</h1>
+          <button id="themeToggle" class="ml-4 text-gray-400 hover:text-white transition-colors" title="Toggle Light/Dark Mode"><i class="fas fa-moon"></i></button>
         </div>
         <p class="text-gray-400 text-sm md:text-base max-w-xl">
           <span class="text-blue-400 font-medium">A</span>utomated <span class="text-blue-400 font-medium">E</span>nrichment &amp; 
@@ -642,14 +660,13 @@ INDEX_HTML = r"""
         <a href="/scheduled" class="btn-glass px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
           <i class="fas fa-calendar-check text-purple-400"></i> Scheduled
         </a>
-        <button id="themeToggle" class="btn-glass p-2 rounded-lg" data-tooltip="Toggle Theme">
-          <i class="fas fa-moon text-yellow-400"></i>
-        </button>
       </nav>
     </header>
 
-    <!-- Main Form -->
-    <form id="scanForm" action="/scan" method="post" class="glass-card p-6 md:p-8 fade-in stagger-1">
+    <!-- Results Container (Target for HTMX) -->
+    <div id="results-container">
+      <!-- Main Form -->
+      <form id="scanForm" hx-post="/scan" hx-target="#results-container" hx-swap="outerHTML" class="glass-card p-6 md:p-8 fade-in stagger-1">
       <!-- Target Input Section -->
       <div class="grid md:grid-cols-4 gap-6 mb-8">
         <div class="md:col-span-2">
@@ -1170,14 +1187,30 @@ INDEX_HTML = r"""
       </div>
     </form>
 
+    </div> <!-- End Results Container -->
     <!-- Footer -->
     <footer class="mt-8 text-center text-xs text-gray-600 fade-in stagger-3">
       <p>AEGIS v6.0 — Advanced Threat Hunter & SOCMINT Swiss Army Knife</p>
-      <p class="mt-1">For authorized security testing only. <a href="https://security-life.org" class="text-blue-500 hover:underline">security-life.org</a></p>
+      <p class="mt-1">For defensive use only.</p>
     </footer>
   </div>
 
   <script>
+    // Theme toggle
+    const themeBtn = document.getElementById('themeToggle');
+    if (themeBtn) {
+        themeBtn.addEventListener('click', () => {
+            document.documentElement.classList.toggle('light-theme');
+            const icon = themeBtn.querySelector('i');
+            if (document.documentElement.classList.contains('light-theme')) {
+                icon.classList.remove('fa-moon');
+                icon.classList.add('fa-sun');
+            } else {
+                icon.classList.remove('fa-sun');
+                icon.classList.add('fa-moon');
+            }
+        });
+    }
     const form = document.getElementById('scanForm');
     const overlay = document.getElementById('loadingOverlay');
     const loadingModules = document.getElementById('loadingModules');
@@ -1195,13 +1228,14 @@ INDEX_HTML = r"""
       'Finalizing scan parameters...'
     ];
     
-    form.addEventListener('submit', function() {
-      overlay.style.display = 'flex';
-      let msgIndex = 0;
-      setInterval(() => {
-        loadingModules.textContent = moduleMessages[msgIndex % moduleMessages.length];
-        msgIndex++;
-      }, 2000);
+    // Instead of intercepting submit, let HTMX handle it, but show the UI loading logic if needed.
+    // HTMX handles the spinner naturally using hx-indicator if we wanted, but the SSE provides beautiful real-time updates.
+    document.body.addEventListener('htmx:beforeSend', function(event) {
+        if(event.detail.elt.id === "scanForm") {
+            // Form is submitting via HTMX via SSE container
+            document.querySelector("button[type='submit']").innerHTML = '<i class="fas fa-spinner fa-spin"></i> Initializing...';
+            document.querySelector("button[type='submit']").disabled = true;
+        }
     });
 
     // Module card selection visual feedback
@@ -1508,8 +1542,11 @@ RESULTS_HTML = r"""
           <button id="btnHuman" class="btn {% if view_mode == 'human' %}btn-primary{% else %}btn-secondary{% endif %}">
             <i class="fas fa-eye"></i> Human View
           </button>
+          <button id="btnSitrep" class="btn {% if view_mode == 'sitrep' %}btn-primary{% else %}btn-secondary{% endif %}">
+            <i class="fas fa-file-contract"></i> Brief SITREP
+          </button>
           <button id="btnJSON" class="btn {% if view_mode == 'json' %}btn-primary{% else %}btn-secondary{% endif %}">
-            <i class="fas fa-code"></i> JSON
+            <i class="fas fa-code"></i> JSON View
           </button>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -1517,11 +1554,21 @@ RESULTS_HTML = r"""
           <a href="/view/{{ scan_id }}" class="btn btn-secondary"><i class="fas fa-link"></i> Permalink</a>
           <a href="/graph/{{ scan_id }}" class="btn btn-secondary"><i class="fas fa-diagram-project"></i> Graph</a>
           {% endif %}
-          <a href="/export/json" class="btn btn-secondary"><i class="fas fa-file-code"></i> JSON</a>
-          <a href="/export/csv" class="btn btn-secondary"><i class="fas fa-file-csv"></i> CSV</a>
+          <a href="/export/json" class="btn btn-secondary text-xs"><i class="fas fa-file-code"></i> JSON</a>
+          <a href="/export/csv" class="btn btn-secondary text-xs"><i class="fas fa-file-csv"></i> CSV</a>
+          <a href="/export/docx" class="btn btn-secondary text-xs"><i class="fas fa-file-word"></i> DOCX</a>
           {% if pdf_available %}
-          <a href="/export/pdf" class="btn btn-primary"><i class="fas fa-file-pdf"></i> PDF</a>
+          <a href="/export/pdf" class="btn btn-primary text-xs"><i class="fas fa-file-pdf"></i> PDF</a>
           {% endif %}
+          
+          <div class="relative group inline-block ml-2">
+            <button class="btn btn-secondary text-xs"><i class="fas fa-server"></i> SIEM Export</button>
+            <div class="absolute right-0 mt-2 w-48 bg-slate-800 rounded shadow-lg hidden group-hover:block z-50">
+              <a href="/export/splunk-cim" class="block px-4 py-2 hover:bg-slate-700 text-sm">Splunk CIM</a>
+              <a href="/export/qradar-leef" class="block px-4 py-2 hover:bg-slate-700 text-sm">QRadar LEEF</a>
+              <a href="/export/elastic-ecs" class="block px-4 py-2 hover:bg-slate-700 text-sm">Elastic ECS</a>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1537,6 +1584,45 @@ RESULTS_HTML = r"""
       </div>
       <button id="btnExpandAll" class="btn btn-secondary"><i class="fas fa-expand"></i> Expand All</button>
       <button id="btnCollapseAll" class="btn btn-secondary"><i class="fas fa-compress"></i> Collapse All</button>
+    </div>
+
+    <!-- SITREP View -->
+    <div id="sitrepView" class="{% if view_mode != 'sitrep' %}hidden{% endif %} space-y-6">
+      <div class="glass-card p-6 border-l-4" style="border-left-color: {% if results.get('_summary', {}).get('risk_level') == 'critical' %}#dc2626{% elif results.get('_summary', {}).get('risk_level') == 'high' %}#f97316{% elif results.get('_summary', {}).get('risk_level') == 'medium' %}#f59e0b{% else %}#10b981{% endif %};">
+        <h2 class="text-2xl font-bold mb-4">Executive Brief (SITREP)</h2>
+        <p class="text-gray-300 text-lg mb-4">Target: <strong class="text-white">{{ url }}</strong></p>
+        
+        <div class="grid md:grid-cols-2 gap-6 mt-6">
+            <div class="bg-gray-800/50 p-4 rounded text-center border border-gray-700">
+                <span class="block text-gray-400 text-sm">Overall Risk Score</span>
+                <span class="block text-4xl font-bold mt-2" style="color: {% if results.get('_summary', {}).get('risk_level') == 'critical' %}#dc2626{% elif results.get('_summary', {}).get('risk_level') == 'high' %}#f97316{% elif results.get('_summary', {}).get('risk_level') == 'medium' %}#f59e0b{% else %}#10b981{% endif %}">
+                    {{ results.get('_summary', {}).get('risk_score', 'N/A') }}
+                </span>
+                <span class="block mt-1 text-xs text-gray-500 uppercase tracking-widest">{{ results.get('_summary', {}).get('risk_level', 'Unknown') }}</span>
+            </div>
+            
+            <div class="bg-gray-800/50 p-4 rounded border border-gray-700">
+                <h3 class="font-bold text-gray-300 mb-2 border-b border-gray-700 pb-2">Key Highlights</h3>
+                <ul class="list-disc pl-5 text-sm text-gray-300 space-y-1">
+                    <li>Total Subdomains Identified: <strong class="text-white">{{ results.get('_summary', {}).get('subdomains', 0) }}</strong></li>
+                    <li>Missing Security Headers: <strong class="text-white">{{ results.get('_summary', {}).get('missing_sec_headers', 0) }}</strong></li>
+                    <li>Known Malicious Signals (VT): <strong class="text-red-400">{{ results.get('_summary', {}).get('vt_malicious', 0) }}</strong> hits</li>
+                    {% if results.get('threat_intel_correlation', {}).get('mitre_attack') %}
+                    <li>MITRE Techniques Identified: <strong class="text-red-400">{{ results.get('threat_intel_correlation').get('mitre_attack')|length }}</strong></li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+        
+        {% if results.get('report_narrative') %}
+        <div class="mt-8">
+            <h3 class="text-xl font-bold text-blue-400 mb-4 border-b border-gray-700 pb-2">Generated Narrative</h3>
+            <div class="prose prose-invert max-w-none text-gray-300 bg-gray-900/40 p-6 rounded-lg border border-gray-800">
+                {{ results.get('report_narrative') | safe }}
+            </div>
+        </div>
+        {% endif %}
+      </div>
     </div>
 
     <!-- Module Timings (collapsible) -->
@@ -1556,10 +1642,10 @@ RESULTS_HTML = r"""
     </details>
     {% endif %}
 
-    <!-- Human View -->
-    <div id="humanView" class="{% if view_mode != 'human' %}hidden{% endif %} space-y-6">
+    <!-- Human View (Workspace Layout) -->
+    <div id="humanView" class="{% if view_mode != 'human' %}hidden{% endif %} columns-1 md:columns-2 lg:columns-3 gap-6 space-y-6 [&>div]:mt-0 [&>div]:mb-6">
       {% for key, value in results.items() if value and not key.startswith('_') %}
-      <div class="result-card">
+      <div class="result-card break-inside-avoid">
         <h2 class="result-title">{{ key.replace('_', ' ')|title }}</h2>
 
         {% if value is mapping and value.get('error') %}
@@ -3238,20 +3324,46 @@ RESULTS_HTML = r"""
 
   <script>
     const humanBtn = document.getElementById('btnHuman');
+    const sitrepBtn = document.getElementById('btnSitrep');
     const jsonBtn = document.getElementById('btnJSON');
+    
     const humanView = document.getElementById('humanView');
+    const sitrepView = document.getElementById('sitrepView');
     const jsonView = document.getElementById('jsonView');
+    
+    function resetViews() {
+        humanView.classList.add('hidden');
+        sitrepView.classList.add('hidden');
+        jsonView.classList.add('hidden');
+        
+        humanBtn.classList.remove('bg-blue-600','text-white');
+        sitrepBtn.classList.remove('bg-blue-600','text-white');
+        jsonBtn.classList.remove('bg-blue-600','text-white');
+        
+        humanBtn.classList.add('btn-secondary');
+        sitrepBtn.classList.add('btn-secondary');
+        jsonBtn.classList.add('btn-secondary');
+    }
+    
     humanBtn.addEventListener('click', () => {
+      resetViews();
       humanView.classList.remove('hidden');
-      jsonView.classList.add('hidden');
+      humanBtn.classList.remove('btn-secondary');
       humanBtn.classList.add('bg-blue-600','text-white');
-      jsonBtn.classList.remove('bg-blue-600','text-white');
     });
+    
+    sitrepBtn.addEventListener('click', () => {
+      resetViews();
+      sitrepView.classList.remove('hidden');
+      sitrepBtn.classList.remove('btn-secondary');
+      sitrepBtn.classList.add('bg-blue-600','text-white');
+    });
+    
     jsonBtn.addEventListener('click', () => {
+      resetViews();
       jsonView.classList.remove('hidden');
-      humanView.classList.add('hidden');
+      jsonBtn.classList.remove('btn-secondary');
       jsonBtn.classList.add('bg-blue-600','text-white');
-      humanBtn.classList.remove('bg-blue-600','text-white');
     });
 
     // Filter + expand/collapse
@@ -9170,6 +9282,14 @@ def extract_relationships(results):
         add_node(link, link, "link")
         if results.get("_meta", {}).get("base_domain"):
             edges.append({"from": results["_meta"]["base_domain"], "to": link})
+            
+    if "threat_intel_correlation" in results:
+        ioc_graph = results["threat_intel_correlation"].get("ioc_graph", {})
+        for n in ioc_graph.get("nodes", []):
+            add_node(n["id"], n["label"], n["group"])
+        for e in ioc_graph.get("edges", []):
+            edges.append(e)
+            
     base = results.get("_meta", {}).get("base_domain")
     if base:
         add_node(base, base, "domain")
@@ -9903,7 +10023,7 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
 # ---------------- Routes ----------------
 @app.route("/", methods=["GET"])
 def index():
-    return render_template_string(INDEX_HTML)
+    return render_template('index.html')
 
 @app.route("/scan", methods=["POST"])
 def scan():
@@ -9928,7 +10048,39 @@ def scan():
     except ValueError:
         schedule_minutes = 0
 
-    results, url_norm = run_scan(url_to_scan, selected, mode, extra_subdomains, extra_exposures, workflow_steps)
+    scan_options = {
+        "extra_subdomains": extra_subdomains,
+        "extra_exposures": extra_exposures,
+        "workflow_steps": workflow_steps
+    }
+    
+    # Dispatch task to celery
+    if "dns" not in selected: # Temporary placeholder to inject test plugin
+        selected.append("dns")
+    
+    # Import directly inside the route to avoid global state pollution from Flask
+    from core.celery_app import celery_app as app_celery
+    
+    logger.info(f"CELERY CONFIG IN SCAN: broker={app_celery.conf.broker_url}, type={type(app_celery)}")
+    
+    task = app_celery.send_task(
+        "core.scanner.run_scan_task",
+        args=[url_to_scan, selected, scan_options]
+    )
+    
+    # If HTMX request, return partial loading UI that establishes SSE
+    if "HX-Request" in request.headers:
+        return f"""
+        <div id="results-container" class="glass-card p-6 mb-8 text-center" hx-ext="sse" sse-connect="/stream/{task.id}">
+            <h3 class="text-xl font-bold text-blue-400 mb-4 animate-pulse"><i class="fas fa-spinner fa-spin"></i> Scan In Progress...</h3>
+            <div id="live-results" sse-swap="message" class="text-left space-y-4">
+                <!-- Live results injected here -->
+            </div>
+            <div sse-swap="completed"></div>
+        </div>
+        """
+        
+    results, url_norm = {}, url_to_scan # Fallback for non-htmx if needed
 
     if schedule_minutes > 0:
         schedule_recurring_scan(
@@ -9953,8 +10105,8 @@ def scan():
     app.config["LATEST_URL"] = url_norm
     app.config["LATEST_SCAN_ID"] = scan_id
 
-    return render_template_string(
-        RESULTS_HTML,
+    return render_template(
+        'results.html',
         results=results,
         url=url_norm,
         view_mode=view_mode,
@@ -9963,11 +10115,62 @@ def scan():
         scan_id=scan_id
     )
 
+@app.route("/stream/<task_id>")
+def stream_results(task_id):
+    def event_stream():
+        import time
+        while True:
+            res = AsyncResult(task_id, app=celery_app)
+            if res.state == 'PENDING':
+                yield f"data: <div class='text-gray-400'>Task {task_id} is pending...</div>\n\n"
+            elif res.state == 'PROGRESS':
+                info = res.info
+                completed_modules = info.get('completed', [])
+                
+                html = "<div class='grid grid-cols-2 md:grid-cols-4 gap-4'>"
+                for mod in completed_modules:
+                    html += f"<div class='bg-green-500/20 border border-green-500 rounded p-3 text-green-400'><i class='fas fa-check-circle'></i> {mod}</div>"
+                html += "</div>"
+                
+                yield f"data: {html}\n\n"
+            elif res.state == 'SUCCESS':
+                results = json.loads(res.result)
+                scan_id = results.get('_meta', {}).get('scan_id', '#')
+                yield f"event: completed\ndata: <div class='text-green-400 font-bold mt-4'><i class='fas fa-check'></i> Scan Complete! <a href='/view/{scan_id}' class='text-blue-400 underline'>View Full Results</a></div>\n\n"
+                break
+            elif res.state == 'FAILURE':
+                yield f"event: completed\ndata: <div class='text-red-400'>Task failed: {str(res.info)}</div>\n\n"
+                break
+            time.sleep(1)
+            
+    return Response(event_stream(), mimetype="text/event-stream")
+
+@app.route("/healthz")
+def health_check():
+    health = {"status": "ok", "app": "AEGIS", "version": "6.0"}
+    try:
+        from core.celery_app import celery_app
+        i = celery_app.control.inspect()
+        active = i.active()
+        health["celery"] = "up" if active is not None else "down"
+    except Exception as e:
+        health["celery"] = f"error: {str(e)}"
+        
+    try:
+        db = get_db()
+        db.execute("SELECT 1").fetchone()
+        health["database"] = "up"
+    except Exception as e:
+        health["database"] = f"error: {str(e)}"
+        
+    status_code = 200 if health["celery"] == "up" and health["database"] == "up" else 503
+    return Response(json.dumps(health), status=status_code, mimetype='application/json')
+
 @app.route("/history")
 def history():
     db = get_db()
     rows = db.execute("SELECT id, url, scan_date FROM scans ORDER BY id DESC LIMIT 100").fetchall()
-    return render_template_string(HISTORY_HTML, items=rows)
+    return render_template('history.html', items=rows)
 
 @app.route("/scheduled")
 def scheduled():
@@ -9989,7 +10192,7 @@ def scheduled():
             "next_run": row["next_run"],
             "last_run": row["last_run"],
         })
-    return render_template_string(SCHEDULED_HTML, items=items)
+    return render_template('scheduled.html', items=items)
 
 @app.route("/view/<int:scan_id>")
 def view_scan(scan_id):
@@ -10002,8 +10205,8 @@ def view_scan(scan_id):
     app.config["LATEST_RESULTS"] = results
     app.config["LATEST_URL"] = row["url"]
     app.config["LATEST_SCAN_ID"] = row["id"]
-    return render_template_string(
-        RESULTS_HTML,
+    return render_template(
+        'results.html',
         results=results,
         url=row["url"],
         view_mode="human",
@@ -10020,7 +10223,7 @@ def graph(scan_id):
         return "Not found", 404
     results = json.loads(row["results"])
     nodes, edges = extract_relationships(results)
-    return render_template_string(GRAPH_HTML, nodes=nodes, edges=edges, scan_id=scan_id)
+    return render_template('graph.html', nodes=nodes, edges=edges, scan_id=scan_id)
 
 def flatten_results_for_csv(results):
     rows = []
@@ -10067,6 +10270,54 @@ def export_json():
         headers={'Content-Disposition':'attachment; filename=export.json'}
     )
 
+@app.route("/export/splunk-cim")
+def export_splunk_cim():
+    results = app.config.get("LATEST_RESULTS", {})
+    if not results: return "No data", 404
+    # Simplistic Splunk Common Information Model mapping
+    cim_events = []
+    for module, data in results.items():
+        if isinstance(data, dict) and "status" in data:
+            cim_events.append({
+                "action": "scan",
+                "app": "aegis",
+                "dest": results.get("domain_risk_scoring", {}).get("domain", "unknown"),
+                "severity": "high" if "threat" in module else "informational",
+                "signature": f"Aegis Module: {module}",
+                "body": data
+            })
+    return Response(json.dumps(cim_events, indent=2), mimetype='application/json', headers={'Content-Disposition':'attachment; filename=aegis-splunk-cim.json'})
+
+@app.route("/export/qradar-leef")
+def export_qradar_leef():
+    results = app.config.get("LATEST_RESULTS", {})
+    if not results: return "No data", 404
+    leef_lines = []
+    host = results.get("domain_risk_scoring", {}).get("domain", "unknown")
+    for module, data in results.items():
+        if isinstance(data, dict):
+            status = data.get("status", "success")
+            leef_lines.append(f"LEEF:1.0|Masriyan|Aegis|v6|{module}|devTimeFormat=MMM dd yyyy HH:mm:ss\tdevTime=current\tsev=5\tdst={host}\tmsg={status}")
+    return Response("\n".join(leef_lines), mimetype='text/plain', headers={'Content-Disposition':'attachment; filename=aegis-qradar.leef'})
+
+@app.route("/export/elastic-ecs")
+def export_elastic_ecs():
+    results = app.config.get("LATEST_RESULTS", {})
+    if not results: return "No data", 404
+    host = results.get("domain_risk_scoring", {}).get("domain", "unknown")
+    ecs_events = [{
+        "@timestamp": datetime.now().isoformat(),
+        "event.module": "aegis",
+        "event.dataset": "vulnerability_scan",
+        "host.domain": host,
+        "vulnerability.scanner.vendor": "Masriyan",
+        "aegis.results": results
+    }]
+    # Returning NDJSON standard for elastic
+    ndjson = "\n".join([json.dumps(e) for e in ecs_events])
+    return Response(ndjson, mimetype='application/x-ndjson', headers={'Content-Disposition':'attachment; filename=aegis-ecs.ndjson'})
+
+
 @app.route("/export/pdf")
 def export_pdf():
     if WeasyHTML is None:
@@ -10087,6 +10338,44 @@ def export_pdf():
     response = make_response(pdf)
     response.headers['Content-Type'] = 'application/pdf'
     response.headers['Content-Disposition'] = 'attachment; filename=report.pdf'
+    return response
+
+@app.route("/export/docx")
+def export_docx():
+    results = app.config.get("LATEST_RESULTS", {})
+    if not results: return "No data", 404
+    try:
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+    except ImportError:
+        return "DOCX export not available. Please install python-docx.", 500
+        
+    doc = Document()
+    url = app.config.get("LATEST_URL", "Unknown")
+    
+    # Title
+    title = doc.add_heading(f"Aegis Security Scan Report: {url}", 0)
+    title.style.font.color.rgb = RGBColor(0, 80, 155)
+    
+    doc.add_paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Modules
+    for module_name, data in results.items():
+        if module_name.startswith("_"): continue
+        doc.add_heading(module_name.replace("_", " ").title(), level=1)
+        if isinstance(data, dict):
+            for k, v in data.items():
+                p = doc.add_paragraph()
+                p.add_run(f"{k}: ").bold = True
+                p.add_run(str(v))
+        else:
+            doc.add_paragraph(str(data))
+            
+    output = io.BytesIO()
+    doc.save(output)
+    response = make_response(output.getvalue())
+    response.headers["Content-Disposition"] = "attachment; filename=report.docx"
+    response.headers["Content-type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return response
 
 @app.route("/export/subdomains.csv")
@@ -10127,8 +10416,8 @@ def export_report():
     fuzzer = results.get("fuzzer", {}).get("rows", [])
     subdomains = results.get("subdomain_scan", {}).get("rows", [])[:15]
     signatures = results.get("signature_hits", {}).get("rows", [])
-    report_html = render_template_string(
-        REPORT_HTML,
+    report_html = render_template(
+        'report.html',
         url=url_val,
         summary=summary,
         meta=meta,
@@ -10322,8 +10611,8 @@ def api_test_webhook():
 if __name__ == "__main__":
     with app.app_context():
         init_db()
-    logger.info(f"🛡️ AEGIS v{AEGIS_VERSION} - Enterprise Threat Hunter")
-    logger.info(f"   AI Features: {'Enabled' if AI_ENABLED else 'Disabled'}")
-    # Bind to localhost to avoid Windows firewall prompt for public networks
-    app.run(host="127.0.0.1", port=8080, debug=True)
+    
+    flask_host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    
+    app.run(host=flask_host, port=8080, debug=True)
 
