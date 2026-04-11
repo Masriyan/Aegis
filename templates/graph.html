@@ -1,34 +1,215 @@
-<!doctype html>
-<html><head>
-  <meta charset="utf-8"><title>AEGIS — Relationship Graph</title>
-  <script src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { font-family: 'Inter', sans-serif; }
-    body { background: #06080f; color: #e2e8f0; margin: 0; }
-    #network { width: 100%; height: 85vh; border: 1px solid rgba(71,85,105,0.3); border-radius: 1rem; background: #0c1220; }
-    .panel { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
-    a { color: #60a5fa; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    h1 { font-size: 1.5rem; font-weight: 800; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    p { color: #64748b; font-size: 0.85rem; margin-bottom: 1rem; }
-  </style>
-</head>
-<body>
-  <div class="panel">
-    <h1>Relationship Graph — Scan #{{ scan_id }}</h1>
-    <p>Nodes sized by type; drag to explore. <a href="/">← Back to Scanner</a></p>
-    <div id="network"></div>
+{% extends "base.html" %}
+{% block title %}AEGIS — Entity Graph{% endblock %}
+
+{% block head %}
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  #graphContainer { width:100%; height: calc(100vh - 200px); min-height: 500px; border-radius: var(--radius-lg); overflow: hidden; position: relative; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--glass-border); }
+  #graphContainer svg { width: 100%; height: 100%; }
+  .node-label { font-family: 'Inter', sans-serif; font-size: 11px; fill: #e2e8f0; pointer-events: none; }
+  .link { stroke-opacity: 0.4; }
+  .graph-controls { position: absolute; top: 1rem; right: 1rem; display: flex; flex-direction: column; gap: 0.375rem; z-index: 10; }
+  .graph-legend { position: absolute; bottom: 1rem; left: 1rem; z-index: 10; }
+  .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #06b6d4, #8b5cf6)"><i class="fas fa-diagram-project"></i></div>
+    <div>
+      <h1 class="page-title">Entity Graph</h1>
+      <p class="page-subtitle">Scan #{{ scan_id }} — Relationship visualization</p>
+    </div>
   </div>
-  <script>
-    const nodes = new vis.DataSet({{ nodes | tojson }});
-    const edges = new vis.DataSet({{ edges | tojson }});
-    new vis.Network(document.getElementById('network'), { nodes, edges }, {
-      nodes: { font: { color: '#e2e8f0', face: 'Inter' }, borderWidth: 1 },
-      edges: { color: { color: '#475569', highlight: '#60a5fa' }, smooth: { type: 'continuous' } },
-      physics: { stabilization: true, barnesHut: { gravitationalConstant: -3000, springLength: 200 } }
-    });
-  </script>
-</body>
-</html>
+  <div style="display:flex;gap:0.5rem">
+    <a href="/view/{{ scan_id }}" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i> Results</a>
+    <button onclick="resetZoom()" class="btn btn-secondary btn-sm"><i class="fas fa-expand"></i> Reset</button>
+    <button onclick="exportSVG()" class="btn btn-primary btn-sm"><i class="fas fa-image"></i> Export SVG</button>
+  </div>
+</div>
+
+<div id="graphContainer">
+  <!-- Graph Controls -->
+  <div class="graph-controls">
+    <button class="btn btn-secondary btn-icon btn-sm" onclick="zoomIn()" title="Zoom in"><i class="fas fa-plus"></i></button>
+    <button class="btn btn-secondary btn-icon btn-sm" onclick="zoomOut()" title="Zoom out"><i class="fas fa-minus"></i></button>
+    <button class="btn btn-secondary btn-icon btn-sm" onclick="resetZoom()" title="Fit"><i class="fas fa-expand"></i></button>
+  </div>
+
+  <!-- Legend -->
+  <div class="graph-legend glass-card p-3" style="background:rgba(15,23,42,0.8)">
+    <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div> Domain</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div> IP Address</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div> Subdomain</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> Vulnerability</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div> Technology</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div> Other</div>
+  </div>
+
+  <svg id="graphSvg"></svg>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const rawNodes = {{ nodes | tojson }};
+  const rawEdges = {{ edges | tojson }};
+
+  const typeColors = {
+    domain: '#3b82f6',
+    ip: '#10b981',
+    subdomain: '#f59e0b',
+    vulnerability: '#ef4444',
+    technology: '#8b5cf6',
+    email: '#ec4899',
+    default: '#06b6d4'
+  };
+
+  function getColor(node) {
+    const label = (node.group || node.label || '').toLowerCase();
+    for (const [key, color] of Object.entries(typeColors)) {
+      if (label.includes(key)) return color;
+    }
+    return typeColors.default;
+  }
+
+  const container = document.getElementById('graphContainer');
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  const svg = d3.select('#graphSvg')
+    .attr('viewBox', [0, 0, width, height]);
+
+  const g = svg.append('g');
+
+  // Zoom
+  const zoom = d3.zoom()
+    .scaleExtent([0.1, 8])
+    .on('zoom', (event) => g.attr('transform', event.transform));
+
+  svg.call(zoom);
+
+  // Nodes and links
+  const nodes = rawNodes.map(n => ({
+    id: n.id,
+    label: n.label || n.id,
+    group: n.group || 'default',
+    size: n.size || 8
+  }));
+
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const links = rawEdges
+    .filter(e => nodeIds.has(e.from) && nodeIds.has(e.to))
+    .map(e => ({
+      source: e.from,
+      target: e.to,
+      label: e.label || ''
+    }));
+
+  // Simulation
+  const simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(80))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(25));
+
+  // Links
+  const link = g.append('g')
+    .selectAll('line')
+    .data(links)
+    .join('line')
+    .attr('class', 'link')
+    .attr('stroke', '#475569')
+    .attr('stroke-width', 1);
+
+  // Nodes
+  const node = g.append('g')
+    .selectAll('circle')
+    .data(nodes)
+    .join('circle')
+    .attr('r', d => Math.max(6, Math.min(d.size, 20)))
+    .attr('fill', d => getColor(d))
+    .attr('stroke', d => d3.color(getColor(d)).brighter(0.5))
+    .attr('stroke-width', 1.5)
+    .style('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', dragstart)
+      .on('drag', dragged)
+      .on('end', dragend));
+
+  // Labels
+  const label = g.append('g')
+    .selectAll('text')
+    .data(nodes)
+    .join('text')
+    .attr('class', 'node-label')
+    .attr('dy', d => Math.max(6, Math.min(d.size, 20)) + 14)
+    .attr('text-anchor', 'middle')
+    .text(d => d.label.length > 25 ? d.label.slice(0, 22) + '...' : d.label);
+
+  // Hover
+  node.on('mouseover', function(event, d) {
+    d3.select(this).attr('r', d => Math.max(6, Math.min(d.size, 20)) + 4).attr('stroke-width', 3);
+  }).on('mouseout', function(event, d) {
+    d3.select(this).attr('r', d => Math.max(6, Math.min(d.size, 20))).attr('stroke-width', 1.5);
+  });
+
+  // Tooltip
+  node.append('title').text(d => `${d.label}\nType: ${d.group}`);
+
+  // Tick
+  simulation.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y);
+
+    node
+      .attr('cx', d => d.x)
+      .attr('cy', d => d.y);
+
+    label
+      .attr('x', d => d.x)
+      .attr('y', d => d.y);
+  });
+
+  function dragstart(event, d) {
+    if (!event.active) simulation.alphaTarget(0.3).restart();
+    d.fx = d.x;
+    d.fy = d.y;
+  }
+
+  function dragged(event, d) {
+    d.fx = event.x;
+    d.fy = event.y;
+  }
+
+  function dragend(event, d) {
+    if (!event.active) simulation.alphaTarget(0);
+    d.fx = null;
+    d.fy = null;
+  }
+
+  function zoomIn() { svg.transition().call(zoom.scaleBy, 1.5); }
+  function zoomOut() { svg.transition().call(zoom.scaleBy, 0.67); }
+  function resetZoom() { svg.transition().call(zoom.transform, d3.zoomIdentity); }
+
+  function exportSVG() {
+    const svgEl = document.getElementById('graphSvg');
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svgEl);
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'aegis-graph-{{ scan_id }}.svg';
+    a.click();
+    URL.revokeObjectURL(url);
+    Aegis.toast('Graph exported as SVG', 'success');
+  }
+</script>
+{% endblock %}

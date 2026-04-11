@@ -1,434 +1,488 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AEGIS — Automated Enrichment &amp; Global Intelligence Scanner</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-  <script src="https://unpkg.com/htmx.org/dist/ext/sse.js"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/aegis.css">
-</head>
-<body class="aegis-dark">
+{% extends "base.html" %}
+{% block title %}AEGIS — New Scan{% endblock %}
 
-  <!-- Particle Field -->
-  <div class="particle-field">
-    <div class="dot" style="left:10%;animation-delay:0s"></div>
-    <div class="dot" style="left:25%;animation-delay:3s;background:var(--accent-purple)"></div>
-    <div class="dot" style="left:45%;animation-delay:7s"></div>
-    <div class="dot" style="left:65%;animation-delay:2s;background:var(--accent-cyan)"></div>
-    <div class="dot" style="left:85%;animation-delay:5s;background:var(--accent-purple)"></div>
-    <div class="dot" style="left:5%;animation-delay:10s"></div>
-    <div class="dot" style="left:75%;animation-delay:12s;background:var(--accent-green)"></div>
-    <div class="dot" style="left:35%;animation-delay:15s"></div>
-  </div>
-
-  <!-- Module Counter (floating) -->
-  <div class="module-counter" id="moduleCounter" style="display:none">
-    <i class="fas fa-puzzle-piece text-blue-400 mr-2"></i>
-    <span class="count-num" id="selectedCount">0</span>
-    <span class="text-gray-500">/</span>
-    <span class="text-gray-500" id="totalModules">0</span>
-    <span class="text-gray-500 ml-1">modules</span>
-  </div>
-
-  <!-- Loading Overlay -->
-  <div id="loadingOverlay" style="display:none" class="fixed inset-0 z-[9999] flex items-center justify-center" style="background:rgba(0,0,0,0.95);backdrop-filter:blur(12px)">
-    <div class="text-center">
-      <div class="w-20 h-20 mx-auto rounded-full border-[3px] border-transparent border-t-blue-500 border-r-purple-500 animate-spin relative">
-        <div class="absolute inset-2 rounded-full border-[3px] border-transparent border-t-cyan-400 animate-spin" style="animation-direction:reverse;animation-duration:1.8s"></div>
-      </div>
-      <div class="text-white text-lg font-bold mt-6">Hunting for Threats...</div>
-      <div class="text-gray-500 text-sm mt-1">Analyzing and enriching intelligence data</div>
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #06b6d4, #3b82f6)"><i class="fas fa-crosshairs"></i></div>
+    <div>
+      <h1 class="page-title">New Scan</h1>
+      <p class="page-subtitle">Configure and launch a new threat intelligence scan</p>
     </div>
   </div>
+</div>
 
-  <div class="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-6">
+<form id="scanForm" action="/scan" method="POST" hx-post="/scan" hx-target="#scan-results-container" hx-swap="innerHTML">
+  <div class="grid lg:grid-cols-3 gap-6">
+    <!-- LEFT: Config -->
+    <div class="lg:col-span-2 space-y-6">
 
-    <!-- Header -->
-    <header class="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 animate-fade-up">
-      <div class="mb-4 md:mb-0">
-        <div class="flex items-center gap-3 mb-2">
-          <div class="relative w-11 h-11 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30" style="box-shadow: var(--glow-blue)">
-            <i class="fas fa-shield-halved text-blue-400 text-xl"></i>
-          </div>
-          <div>
-            <h1 class="text-xl md:text-2xl font-extrabold tracking-wide bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent bg-[length:300%_300%]" style="animation: gradFlow 8s ease infinite">AEGIS // OSINT</h1>
-            <style>@keyframes gradFlow{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}</style>
-          </div>
+      <!-- Step 1: Target -->
+      <div class="glass-card no-hover p-6">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="w-7 h-7 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold">1</span>
+          <h2 class="text-lg font-semibold text-gray-200">Target</h2>
         </div>
-        <p class="text-gray-500 text-sm md:text-base max-w-xl">
-          <span class="text-blue-400 font-medium">A</span>utomated <span class="text-blue-400 font-medium">E</span>nrichment &amp;
-          <span class="text-purple-400 font-medium">G</span>lobal <span class="text-purple-400 font-medium">I</span>ntelligence
-          <span class="text-cyan-400 font-medium">S</span>canner
-        </p>
+        <input type="text" name="url" id="targetInput" class="form-input" style="font-size:1rem;padding:0.875rem 1rem" placeholder="Enter domain, IP address, URL, or email..." required value="{{ request.args.get('target', '') }}">
+        <div class="flex flex-wrap gap-2 mt-3">
+          <span class="text-xs text-gray-500"><i class="fas fa-globe mr-1"></i>example.com</span>
+          <span class="text-xs text-gray-500"><i class="fas fa-server mr-1"></i>192.168.1.1</span>
+          <span class="text-xs text-gray-500"><i class="fas fa-link mr-1"></i>https://example.com</span>
+          <span class="text-xs text-gray-500"><i class="fas fa-envelope mr-1"></i>user@example.com</span>
+        </div>
       </div>
-      <nav class="flex items-center gap-3">
-        <a href="/history" class="btn-aegis secondary"><i class="fas fa-clock-rotate-left text-blue-400"></i> History</a>
-        <a href="/scheduled" class="btn-aegis secondary"><i class="fas fa-calendar-check text-purple-400"></i> Scheduled</a>
-      </nav>
-    </header>
 
-    <!-- Results Container (HTMX target) -->
-    <div id="results-container">
-      <form id="scanForm" hx-post="/scan" hx-target="#results-container" hx-swap="outerHTML" class="glass-tier-1 p-6 md:p-8 animate-fade-up" style="animation-delay:0.1s">
+      <!-- Step 2: Scan Profile -->
+      <div class="glass-card no-hover p-6">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="w-7 h-7 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold">2</span>
+          <h2 class="text-lg font-semibold text-gray-200">Scan Profile</h2>
+        </div>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3" id="profileCards">
+          <!-- Passive Recon -->
+          <div class="profile-card" data-profile="passive" onclick="selectProfile(this, 'passive')">
+            <div class="profile-icon" style="background:rgba(6,182,212,0.15);color:#06b6d4"><i class="fas fa-eye"></i></div>
+            <div class="text-sm font-semibold text-gray-300">Passive Recon</div>
+            <div class="text-xs text-gray-500 mt-1">DNS, WHOIS, tech stack, headers</div>
+          </div>
+          <!-- Active Assessment -->
+          <div class="profile-card" data-profile="active" onclick="selectProfile(this, 'active')">
+            <div class="profile-icon" style="background:rgba(245,158,11,0.15);color:#f59e0b"><i class="fas fa-shield-halved"></i></div>
+            <div class="text-sm font-semibold text-gray-300">Security Audit</div>
+            <div class="text-xs text-gray-500 mt-1">OWASP, CVE, fuzzer, SSL</div>
+          </div>
+          <!-- Full Hunt -->
+          <div class="profile-card selected" data-profile="full" onclick="selectProfile(this, 'full')">
+            <div class="profile-icon" style="background:rgba(139,92,246,0.15);color:#8b5cf6"><i class="fas fa-crosshairs"></i></div>
+            <div class="text-sm font-semibold text-gray-300">Full Hunt</div>
+            <div class="text-xs text-gray-500 mt-1">All modules — maximum depth</div>
+          </div>
+          <!-- Custom -->
+          <div class="profile-card" data-profile="custom" onclick="selectProfile(this, 'custom')">
+            <div class="profile-icon" style="background:rgba(16,185,129,0.15);color:#10b981"><i class="fas fa-sliders"></i></div>
+            <div class="text-sm font-semibold text-gray-300">Custom</div>
+            <div class="text-xs text-gray-500 mt-1">Choose specific modules</div>
+          </div>
+        </div>
+        <input type="hidden" name="mode" value="defensive" id="scanMode">
+      </div>
 
-        <!-- Target Input -->
-        <div class="grid md:grid-cols-4 gap-5 mb-8">
-          <div class="md:col-span-2">
-            <label class="block text-xs font-bold mb-2 text-gray-400 uppercase tracking-wider">
-              <i class="fas fa-crosshairs text-blue-400 mr-1"></i>Target URL
-            </label>
-            <div class="relative">
-              <input type="url" name="url" placeholder="https://example.com" required
-                     class="w-full rounded-xl filter-input px-4 py-3 text-white pr-12" />
-              <div class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600"><i class="fas fa-globe"></i></div>
-            </div>
+      <!-- Step 3: Modules -->
+      <div class="glass-card no-hover p-6" id="moduleSelector">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold">3</span>
+            <h2 class="text-lg font-semibold text-gray-200">Modules</h2>
           </div>
-          <div>
-            <label class="block text-xs font-bold mb-2 text-gray-400 uppercase tracking-wider">
-              <i class="fas fa-sliders text-purple-400 mr-1"></i>Mode
-            </label>
-            <select name="mode" class="w-full rounded-xl filter-input px-4 py-3 text-white cursor-pointer">
-              <option value="defensive" selected>🛡️ Defensive</option>
-              <option value="semi">⚔️ Semi-offensive</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-2 text-gray-400 uppercase tracking-wider">
-              <i class="fas fa-wand-magic-sparkles text-cyan-400 mr-1"></i>Preset
-            </label>
-            <select id="presetSelect" class="w-full rounded-xl filter-input px-4 py-3 text-white cursor-pointer">
-              <option value="">Select preset...</option>
-              <option value="recon">🔍 Recon (Passive OSINT)</option>
-              <option value="passive">🔒 Passive (Safe Defaults)</option>
-              <option value="semi">⚡ Semi-offensive (Auth)</option>
-            </select>
+          <div class="flex items-center gap-2">
+            <input type="text" id="moduleSearch" class="form-input" style="width:200px;padding:0.4rem 0.75rem;font-size:0.8rem" placeholder="Filter modules...">
+            <button type="button" onclick="selectAllModules()" class="btn btn-ghost btn-sm">All</button>
+            <button type="button" onclick="deselectAllModules()" class="btn btn-ghost btn-sm">None</button>
           </div>
         </div>
 
-        <!-- Modules Section -->
-        <div class="mb-8">
-          <div class="flex items-center justify-between mb-5">
-            <h3 class="text-base font-bold text-white flex items-center gap-2">
-              <i class="fas fa-puzzle-piece text-blue-400"></i> Reconnaissance Modules
-            </h3>
-            <div class="flex gap-2">
-              <button type="button" id="selectAll" class="btn-aegis secondary text-xs py-1.5"><i class="fas fa-check-double mr-1"></i>All</button>
-              <button type="button" id="clearAll" class="btn-aegis secondary text-xs py-1.5"><i class="fas fa-times mr-1"></i>Clear</button>
-            </div>
-          </div>
-
-          <!-- Discovery -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-blue-500/15 text-blue-400"><i class="fas fa-magnifying-glass"></i></div><span class="cat-label">Discovery & Fingerprinting</span></div>
-              <div class="flex gap-1.5 opacity-0 hover:opacity-100 transition-opacity"><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,true)">All</button><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,false)">None</button></div>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Crawler','crawler','fa-spider'),('Tech Fingerprint','tech','fa-microchip'),('HTTP Headers','headers','fa-server'),('Security Headers','sec_headers','fa-shield'),('TLS Certificate','tls','fa-lock')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-blue)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:bg-blue-500/20 peer-checked:bg-blue-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- DNS & Domain -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-purple-500/15 text-purple-400"><i class="fas fa-network-wired"></i></div><span class="cat-label">DNS & Domain Intelligence</span></div>
-              <div class="flex gap-1.5 opacity-0 hover:opacity-100 transition-opacity"><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,true)">All</button><button type="button" class="text-[0.6rem] btn-aegis secondary py-0.5 px-2" onclick="selectCategory(this,false)">None</button></div>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('DNS Records','dns','fa-diagram-project'),('WHOIS Lookup','whois','fa-address-card'),('Subdomain Scan','subdomains','fa-sitemap'),('SecurityTrails','securitytrails','fa-route'),('Cloud Assets','cloud_assets','fa-cloud')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-purple)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-purple-500/10 flex items-center justify-center text-purple-400 group-hover:bg-purple-500/20 peer-checked:bg-purple-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- Threat Intel -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-red-500/15 text-red-400"><i class="fas fa-biohazard"></i></div><span class="cat-label">Threat Intelligence</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('VirusTotal','virustotal','fa-virus'),('urlscan.io','urlscan','fa-eye'),('AlienVault OTX','otx','fa-user-secret'),('Shodan','shodan','fa-satellite-dish'),('GreyNoise','greynoise','fa-broadcast-tower'),('AbuseIPDB','abuseipdb','fa-ban'),('GitHub Code','github','fa-code-branch'),('Code Scan','code_scan','fa-code'),('Archive.org','archive','fa-box-archive'),('HIBP Check','hibp','fa-user-lock')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-red)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-red-500/10 flex items-center justify-center text-red-400 group-hover:bg-red-500/20 peer-checked:bg-red-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- Security Analysis -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-amber-500/15 text-amber-400"><i class="fas fa-triangle-exclamation"></i></div><span class="cat-label">Security Analysis</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('security.txt','security_txt','fa-file-shield'),('Robots.txt','robots_txt','fa-robot'),('Signature Scan','signatures','fa-fingerprint'),('CVE Alerts','cve_alerts','fa-bug'),('OWASP Top 10','owasp_top10','fa-list-check'),('Exposure Probe','exposure_checks','fa-door-open'),('Param Fuzzer','fuzzer','fa-shuffle'),('WAF Detection','waf_detect','fa-shield-halved'),('Email Security','email_security','fa-envelope-circle-check'),('Port Scanner','port_scan','fa-network-wired'),('ASN Lookup','asn_lookup','fa-building'),('Favicon Hash','favicon_hash','fa-image'),('SSL/TLS Audit','ssl_tls','fa-lock'),('Takeover Check','subdomain_takeover','fa-skull-crossbones'),('HTTP Methods','http_methods','fa-arrows-left-right'),('CORS Check','cors','fa-link-slash'),('Cookie Audit','cookie_audit','fa-cookie-bite'),('JS Secrets','js_secrets','fa-key')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-amber)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-amber-500/10 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/20 peer-checked:bg-amber-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- Automation -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-green-500/15 text-green-400"><i class="fas fa-robot"></i></div><span class="cat-label">Automation & Capture</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Screenshot','screenshot','fa-camera'),('Workflow Runner','workflow','fa-gears'),('Sandbox Submit','sandbox','fa-flask')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-green)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-green-500/10 flex items-center justify-center text-green-400 group-hover:bg-green-500/20 peer-checked:bg-green-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- Extended OSINT v3.0 -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-cyan-500/15 text-cyan-400"><i class="fas fa-globe"></i></div><span class="cat-label">Extended OSINT (v3.0)</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Hunter.io','hunter_io','fa-envelope'),('Censys','censys','fa-server'),('GitHub Dorks','github_dorks','fa-code-branch'),('FullHunt','fullhunt','fa-crosshairs'),('BinaryEdge','binaryedge','fa-database'),('BuiltWith','builtwith','fa-cubes'),('LeakCheck','leakcheck','fa-droplet')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-cyan)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-500/20 peer-checked:bg-cyan-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- v4.0 Innovative -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-indigo-500/15 text-indigo-400"><i class="fas fa-lightbulb"></i></div><span class="cat-label">Innovative Analysis (v4.0 — No API)</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Scan Diff','scan_diff','fa-code-compare'),('Wordlist Gen','wordlist_gen','fa-list-ol'),('Password Policy','password_policy','fa-key'),('Tech Timeline','tech_timeline','fa-timeline'),('Entropy Scan','entropy_scan','fa-chart-bar'),('Attack Map','attack_map','fa-diagram-project'),('Report Narrative','report_narrative','fa-file-lines'),('Delta Alerts','delta_alerts','fa-bell')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#818cf8">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500/20 peer-checked:bg-indigo-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- v5.0 Advanced -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-rose-500/15 text-rose-400"><i class="fas fa-shield-virus"></i></div><span class="cat-label">Advanced Security (v5.0)</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Crypto Scanner','crypto_scan','fa-bitcoin-sign'),('Privacy Detector','privacy_detect','fa-user-secret'),('DB Leak Detect','db_leak','fa-database'),('JS Deobfuscate','js_deobfuscate','fa-code'),('Homoglyph Scan','homoglyph_scan','fa-font'),('Ghost Finder','ghost_finder','fa-ghost'),('Honeypot Detect','honeypot_detect','fa-jar'),('Geo Block','geo_block','fa-globe'),('Compliance Check','compliance_check','fa-clipboard-check'),('Vuln Predict','vuln_predict','fa-bug')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-rose)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-rose-500/10 flex items-center justify-center text-rose-400 group-hover:bg-rose-500/20 peer-checked:bg-rose-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- v5.0 Intelligence & Experimental -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-amber-500/15 text-amber-400"><i class="fas fa-flask"></i></div><span class="cat-label">Intelligence & Experimental (v5.0)</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Media Assets','media_scan','fa-photo-film'),('Mobile Apps','mobile_detect','fa-mobile-screen'),('Email Harvest','email_harvest','fa-envelope-open-text'),('Brand Extract','brand_extract','fa-palette'),('Website DNA','website_dna','fa-dna'),('Timing Analysis','timing_analysis','fa-stopwatch'),('API Fuzzer','api_fuzzer','fa-plug'),('Link Graph','link_graph','fa-share-nodes'),('Sub Cluster','sub_cluster','fa-object-group'),('Site Value','site_value','fa-coins'),('Cookie Consent','cookie_consent','fa-cookie-bite')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-amber)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-amber-500/10 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/20 peer-checked:bg-amber-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- v6.0 SOCMINT -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-red-600/15 text-red-400"><i class="fas fa-skull-crossbones"></i></div><span class="cat-label">SOCMINT & Threat Intel (v6.0)</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Social Media Intel','social_intel','fa-users'),('Social Extractor','social_extract','fa-share-alt'),('Ransomware Check','ransomware_check','fa-virus'),('Ransom Groups','ransom_groups','fa-skull'),('Recent Victims','ransom_victims','fa-list')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#dc2626">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-red-600/10 flex items-center justify-center text-red-400 group-hover:bg-red-600/20 peer-checked:bg-red-600 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- v6.1.0 Enhanced Analysis -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-emerald-500/15 text-emerald-400"><i class="fas fa-chart-pie"></i></div><span class="cat-label">Enhanced Analysis (v6.1 — 100% Local)</span><span class="px-2 py-0.5 text-[0.55rem] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 rounded-full">NEW</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Security Score','security_posture','fa-gauge-high'),('Attack Vectors','attack_vectors','fa-route'),('Smart Summary','smart_summary','fa-wand-magic-sparkles'),('HTTP Fingerprint','http_fingerprint','fa-fingerprint'),('Input Validation','input_validation','fa-keyboard'),('CSP Analysis','csp_analysis','fa-shield-halved'),('Recon Detection','recon_detection','fa-user-secret'),('JS Complexity','js_complexity','fa-file-code'),('Session Analysis','session_analysis','fa-id-badge'),('Rate Limiting','rate_limiting','fa-tachometer-alt'),('Cache Analysis','cache_analysis','fa-box-archive'),('Form Security','form_security','fa-wpforms'),('Meta Tags','meta_tags','fa-tags')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:var(--accent-green)">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:bg-emerald-500/20 peer-checked:bg-emerald-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-
-          <!-- Active Testing v3.0 -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-pink-500/15 text-pink-400"><i class="fas fa-bolt"></i></div><span class="cat-label">Active Security Testing (v3.0 — Requires Auth)</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Auth Testing','auth_test','fa-key'),('API Security','api_security','fa-plug'),('XXE Detection','xxe_test','fa-code'),('SSRF Detection','ssrf_test','fa-network-wired'),('Open Redirects','redirect_test','fa-share'),('Header Injection','header_test','fa-heading')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#ec4899">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-pink-500/10 flex items-center justify-center text-pink-400 group-hover:bg-pink-500/20 peer-checked:bg-pink-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-            <p class="text-[0.65rem] text-pink-400/60 mt-2 ml-1"><i class="fas fa-exclamation-triangle mr-1"></i>Requires explicit authorization and semi/active mode.</p>
-          </div>
-
-          <!-- Vuln & Monitoring v3.0 -->
-          <div class="mb-5">
-            <div class="cat-header"><div class="flex items-center gap-2"><div class="cat-icon bg-orange-500/15 text-orange-400"><i class="fas fa-shield-virus"></i></div><span class="cat-label">Vulnerability & Monitoring (v3.0)</span></div></div>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
-              {% for label, val, icon in [('Enhanced CVE','enhanced_cve','fa-bug-slash'),('Cert Monitor','cert_monitor','fa-certificate')] %}
-              <label class="module-select-card px-3 py-2.5 flex items-center gap-2.5 group" style="--module-accent:#f97316">
-                <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
-                <div class="w-7 h-7 rounded-md bg-orange-500/10 flex items-center justify-center text-orange-400 group-hover:bg-orange-500/20 peer-checked:bg-orange-500 peer-checked:text-white transition-all text-xs"><i class="fas {{ icon }}"></i></div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition-colors">{{ label }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
-        </div>
-
-        <!-- Advanced Options -->
-        <details class="mb-8 group">
-          <summary class="cursor-pointer text-xs font-bold text-gray-500 hover:text-white transition-colors flex items-center gap-2 uppercase tracking-wider">
-            <i class="fas fa-chevron-right transition-transform group-open:rotate-90 text-purple-400"></i>
-            Advanced Options
-          </summary>
-          <div class="mt-4 grid md:grid-cols-2 gap-5 pl-5">
-            <div>
-              <label class="block text-xs font-semibold mb-2 text-gray-400"><i class="fas fa-list text-blue-400 mr-1"></i>Custom Subdomain Words</label>
-              <textarea name="extra_subdomains" rows="3" placeholder="admin&#10;portal&#10;staging" class="w-full rounded-xl filter-input px-4 py-3 text-sm text-white resize-none"></textarea>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold mb-2 text-gray-400"><i class="fas fa-folder-open text-amber-400 mr-1"></i>Custom Exposure Paths</label>
-              <textarea name="extra_exposures" rows="3" placeholder="/backup.tgz&#10;high::/admin/.env" class="w-full rounded-xl filter-input px-4 py-3 text-sm text-white resize-none"></textarea>
-            </div>
-            <div class="md:col-span-2">
-              <label class="block text-xs font-semibold mb-2 text-gray-400"><i class="fas fa-code text-green-400 mr-1"></i>Workflow Steps (JSON)</label>
-              <textarea name="workflow_steps" rows="3" placeholder='[{"action":"click","selector":"#login"}]' class="w-full rounded-xl filter-input px-4 py-3 text-sm text-white font-mono resize-none"></textarea>
-            </div>
-          </div>
-        </details>
-
-        <!-- Submit Bar -->
-        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pt-6 border-t border-gray-700/30">
-          <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-gray-500"><i class="fas fa-file-export mr-1"></i>Output:</span>
-              <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="view_mode" value="human" checked class="hidden peer">
-                <span class="px-2.5 py-1 text-[0.65rem] font-semibold rounded-md border border-gray-700 peer-checked:border-blue-500 peer-checked:bg-blue-500/15 peer-checked:text-blue-400 transition-all">Human</span>
-              </label>
-              <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="view_mode" value="json" class="hidden peer">
-                <span class="px-2.5 py-1 text-[0.65rem] font-semibold rounded-md border border-gray-700 peer-checked:border-green-500 peer-checked:bg-green-500/15 peer-checked:text-green-400 transition-all">JSON</span>
-              </label>
-            </div>
-            <div class="flex items-center gap-2">
-              <i class="fas fa-clock text-gray-600 text-xs"></i>
-              <input type="number" name="schedule_minutes" min="0" placeholder="0" class="w-16 rounded-md filter-input px-2 py-1.5 text-xs text-center" />
-              <span class="text-[0.65rem] text-gray-600">min interval</span>
-            </div>
-          </div>
-          <button type="submit" class="btn-aegis primary px-8 py-3 text-sm font-bold rounded-xl">
-            <i class="fas fa-crosshairs"></i> Start Hunt <i class="fas fa-arrow-right"></i>
+        <!-- Module Category Tabs -->
+        <div class="tab-nav mb-4" data-tab-group="modules" style="border:none;gap:0.375rem;flex-wrap:wrap">
+          <button type="button" class="tab-btn active" data-tab="modAll" onclick="filterModules('all', event)">All</button>
+          <button type="button" class="tab-btn" data-tab="modDiscovery" onclick="filterModules('discovery', event)">
+            <i class="fas fa-search text-blue-400"></i> Discovery
+          </button>
+          <button type="button" class="tab-btn" data-tab="modDns" onclick="filterModules('dns', event)">
+            <i class="fas fa-server text-cyan-400"></i> DNS & Domain
+          </button>
+          <button type="button" class="tab-btn" data-tab="modThreat" onclick="filterModules('threat', event)">
+            <i class="fas fa-skull-crossbones text-red-400"></i> Threat Intel
+          </button>
+          <button type="button" class="tab-btn" data-tab="modSec" onclick="filterModules('security', event)">
+            <i class="fas fa-shield-alt text-amber-400"></i> Security
+          </button>
+          <button type="button" class="tab-btn" data-tab="modSocmint" onclick="filterModules('socmint', event)">
+            <i class="fas fa-users text-purple-400"></i> SOCMINT
+          </button>
+          <button type="button" class="tab-btn" data-tab="modAi" onclick="filterModules('ai', event)">
+            <i class="fas fa-brain text-green-400"></i> AI & Analysis
           </button>
         </div>
-      </form>
+
+        <!-- Module Grid -->
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2" id="moduleGrid">
+
+          <!-- Modules List: inline + async modules -->
+          {% set modules = [
+            {'name':'crawler','label':'Web Crawler','desc':'Crawl site for emails, links, JS files','cat':'discovery','icon':'fa-spider'},
+            {'name':'headers','label':'HTTP Headers','desc':'Grab and analyze response headers','cat':'discovery','icon':'fa-heading'},
+            {'name':'tech','label':'Tech Fingerprint','desc':'Detect CMS, frameworks, server stack','cat':'discovery','icon':'fa-fingerprint'},
+            {'name':'dns','label':'DNS Records','desc':'Forward/reverse DNS lookup (A, MX, TXT, NS)','cat':'dns','icon':'fa-server'},
+            {'name':'whois','label':'WHOIS Lookup','desc':'Domain registration & ownership data','cat':'dns','icon':'fa-address-card'},
+            {'name':'subdomains','label':'Subdomain Scan','desc':'CT logs + brute-force enumeration','cat':'dns','icon':'fa-sitemap'},
+            {'name':'cert_transparency','label':'CT Logs','desc':'Certificate transparency history','cat':'dns','icon':'fa-certificate'},
+            {'name':'passive_dns_history','label':'Passive DNS','desc':'SecurityTrails historical DNS','cat':'dns','icon':'fa-history','api':True},
+            {'name':'network_topology','label':'Topology Mapper','desc':'Map ASN paths, CDN, high-risk hosting','cat':'dns','icon':'fa-network-wired'},
+
+            {'name':'sec_headers','label':'Security Headers','desc':'Check HSTS, CSP, X-Frame-Options','cat':'security','icon':'fa-shield-alt'},
+            {'name':'tls','label':'TLS/SSL Info','desc':'Certificate chain and protocol analysis','cat':'security','icon':'fa-lock'},
+            {'name':'ssl_tls','label':'SSL Grade','desc':'TLS grade and cipher suite scoring','cat':'security','icon':'fa-award'},
+            {'name':'owasp_top10','label':'OWASP Top 10','desc':'Check for common web vulnerabilities','cat':'security','icon':'fa-bug'},
+            {'name':'cors','label':'CORS Check','desc':'Detect CORS misconfigurations','cat':'security','icon':'fa-exchange-alt'},
+            {'name':'cookie_audit','label':'Cookie Audit','desc':'Analyze cookie security flags','cat':'security','icon':'fa-cookie-bite'},
+            {'name':'domain_risk_scoring','label':'Risk Scoring','desc':'DGA detection & ML risk score','cat':'security','icon':'fa-chart-area'},
+            {'name':'js_threat_analyzer','label':'JS Threat Analyzer','desc':'Detect skimmers, miners, C2 in JS','cat':'security','icon':'fa-file-code'},
+            {'name':'js_secrets','label':'JS Secrets','desc':'Find API keys & secrets in JavaScript','cat':'security','icon':'fa-key'},
+
+            {'name':'virustotal','label':'VirusTotal','desc':'URL reputation & detection engines','cat':'threat','icon':'fa-virus','api':True},
+            {'name':'otx','label':'AlienVault OTX','desc':'OTX pulse and indicator data','cat':'threat','icon':'fa-satellite-dish','api':True},
+            {'name':'shodan','label':'Shodan','desc':'Internet-wide scan data','cat':'threat','icon':'fa-radar','api':True},
+            {'name':'greynoise','label':'GreyNoise','desc':'IP noise & threat classification','cat':'threat','icon':'fa-wave-square','api':True},
+            {'name':'abuseipdb','label':'AbuseIPDB','desc':'IP abuse reports and confidence score','cat':'threat','icon':'fa-gavel','api':True},
+            {'name':'reputation_timeline','label':'VT Reputation','desc':'Historical detections & evasion','cat':'threat','icon':'fa-shield-virus','api':True},
+            {'name':'dark_web_footprint','label':'Dark Web Intel','desc':'Ahmia.fi dark web mentions','cat':'threat','icon':'fa-user-ninja'},
+            {'name':'infostealer_log_correlation','label':'Infostealer Logs','desc':'Dehashed / IntelX breach data','cat':'threat','icon':'fa-mask','api':True},
+
+            {'name':'threat_intel_correlation','label':'Intel Correlation','desc':'Cross-correlate IOCs with STIX/TAXII','cat':'ai','icon':'fa-project-diagram'},
+            {'name':'threat_actor_profiling','label':'Actor Profiling','desc':'Map TTPs to known APT groups','cat':'ai','icon':'fa-user-secret'},
+
+            {'name':'social_intel','label':'Social Intel','desc':'Find social media profiles','cat':'socmint','icon':'fa-users'},
+            {'name':'ransomware_check','label':'Ransomware Check','desc':'Check against known victim lists','cat':'socmint','icon':'fa-skull-crossbones'},
+
+            {'name':'github','label':'GitHub Dorks','desc':'Search for exposed code & secrets','cat':'discovery','icon':'fa-brands fa-github','api':True},
+            {'name':'screenshot','label':'Screenshot','desc':'Capture visual snapshot of target','cat':'discovery','icon':'fa-camera'}
+          ] %}
+
+          {% for mod in modules %}
+          <label class="module-card" data-cat="{{ mod.cat }}" data-name="{{ mod.name }}">
+            <input type="checkbox" name="services" value="{{ mod.name }}" class="module-check" checked>
+            <div class="flex items-start gap-3">
+              <div class="w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-shrink-0" style="background:rgba(59,130,246,0.1);color:var(--accent-blue-light)">
+                <i class="fas {{ mod.icon }}"></i>
+              </div>
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-gray-300 flex items-center gap-1.5">
+                  {{ mod.label }}
+                  {% if mod.api %}<i class="fas fa-key text-amber-500" style="font-size:0.6rem" title="Requires API key"></i>{% endif %}
+                </div>
+                <div class="text-xs text-gray-500 mt-0.5">{{ mod.desc }}</div>
+              </div>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="mt-3 text-xs text-gray-500" id="moduleCount">
+          <span id="selectedCount">{{ modules|length }}</span> / {{ modules|length }} modules selected
+        </div>
+      </div>
+
+      <!-- Step 4: Advanced Options -->
+      <details class="glass-card no-hover">
+        <summary class="p-5 cursor-pointer flex items-center gap-2 text-gray-400 hover:text-gray-300 transition-colors">
+          <span class="w-7 h-7 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold">4</span>
+          <span class="text-sm font-semibold">Advanced Options</span>
+          <i class="fas fa-chevron-down ml-auto text-xs"></i>
+        </summary>
+        <div class="px-5 pb-5 grid sm:grid-cols-2 gap-4">
+          <div class="form-group">
+            <label class="form-label">Extra Subdomains (one per line)</label>
+            <textarea name="extra_subdomains" class="form-textarea font-mono" rows="3" placeholder="sub1.example.com&#10;sub2.example.com"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Extra Paths to Check</label>
+            <textarea name="extra_exposures" class="form-textarea font-mono" rows="3" placeholder="/admin&#10;/backup.sql&#10;/.env"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Schedule Recurring (minutes)</label>
+            <input type="number" name="schedule_minutes" class="form-input" value="0" min="0" placeholder="0 = one-time scan">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Scan Mode</label>
+            <select name="mode" class="form-select" id="modeSelect">
+              <option value="defensive">Defensive (safe)</option>
+              <option value="offensive">Offensive (active testing)</option>
+            </select>
+          </div>
+          <div class="form-group sm:col-span-2">
+            <label class="form-label">Workflow Steps (JSON array)</label>
+            <textarea name="workflow_steps" class="form-textarea font-mono" rows="2" placeholder='[{"module":"dns","then":"subdomain_scan"}]'></textarea>
+          </div>
+        </div>
+      </details>
     </div>
 
-    <!-- Footer -->
-    <footer class="mt-8 text-center text-[0.65rem] text-gray-700">
-      <p>AEGIS v7.0 — Advanced Threat Hunter & SOCMINT Swiss Army Knife</p>
-      <p class="mt-0.5">For defensive use only.</p>
-    </footer>
+    <!-- RIGHT: Launch Panel -->
+    <div>
+      <div class="glass-card no-hover p-6 sticky top-20">
+        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4"><i class="fas fa-rocket text-blue-400 mr-1"></i> Launch Scan</h3>
+
+        <div class="space-y-3 mb-6">
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-400">Target</span>
+            <span class="text-gray-300 font-mono text-xs truncate max-w-[160px]" id="targetPreview">—</span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-400">Profile</span>
+            <span class="badge badge-info" id="profilePreview">Full Hunt</span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-400">Modules</span>
+            <span class="text-gray-300 font-semibold" id="modulePreview">{{ modules|length }}</span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-400">Est. Time</span>
+            <span class="text-gray-300" id="timeEstimate">~2-5 min</span>
+          </div>
+        </div>
+
+        <div class="progress-bar mb-4" style="display:none" id="scanProgress">
+          <div class="progress-fill" style="width:0%"></div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg w-full" id="launchBtn">
+          <i class="fas fa-crosshairs"></i> Launch Hunt
+        </button>
+
+        <div class="text-xs text-gray-500 text-center mt-3">
+          <i class="fas fa-shield-halved text-green-400 mr-1"></i>
+          Authorized use only
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script>
-    // Module card selection
-    document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => {
-      cb.addEventListener('change', function() {
-        this.closest('.module-select-card').classList.toggle('selected', this.checked);
-        updateCounter();
-      });
-    });
+  <input type="hidden" name="view_mode" value="human">
+</form>
 
-    // Counter
-    function updateCounter() {
-      const all = document.querySelectorAll('.module-select-card input[type="checkbox"]');
-      const checked = document.querySelectorAll('.module-select-card input[type="checkbox"]:checked');
-      const counter = document.getElementById('moduleCounter');
-      document.getElementById('selectedCount').textContent = checked.length;
-      document.getElementById('totalModules').textContent = all.length;
-      counter.style.display = checked.length > 0 ? '' : 'none';
-    }
-    updateCounter();
+<div id="scan-results-container" class="mt-6">
+  <!-- SSE live results injected here by HTMX after form submit -->
+</div>
 
-    // Category selection
-    window.selectCategory = function(btn, checked) {
-      const wrapper = btn.closest('.mb-5');
-      wrapper.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = checked; cb.dispatchEvent(new Event('change')); });
-    };
+<!-- Premium Scan Loading Overlay -->
+<div id="scanOverlay" class="scan-overlay">
+  <div class="scan-particles">
+    <div class="scan-particle" style="left:8%;  animation-delay:0s;   background:var(--accent-blue)"></div>
+    <div class="scan-particle" style="left:18%; animation-delay:2s;   background:var(--accent-purple)"></div>
+    <div class="scan-particle" style="left:32%; animation-delay:4.5s; background:var(--accent-emerald)"></div>
+    <div class="scan-particle" style="left:48%; animation-delay:1s;   background:var(--accent-blue)"></div>
+    <div class="scan-particle" style="left:62%; animation-delay:3s;   background:var(--accent-purple)"></div>
+    <div class="scan-particle" style="left:78%; animation-delay:6s;   background:var(--accent-emerald)"></div>
+    <div class="scan-particle" style="left:88%; animation-delay:5s;   background:var(--accent-blue)"></div>
+    <div class="scan-particle" style="left:95%; animation-delay:7.5s; background:var(--accent-purple)"></div>
+    <div class="scan-particle" style="left:5%;  animation-delay:9s;   background:var(--accent-emerald)"></div>
+    <div class="scan-particle" style="left:42%; animation-delay:10s;  background:var(--accent-blue)"></div>
+  </div>
+  <div class="orbital-spinner">
+    <div class="ring ring-1"></div>
+    <div class="ring ring-2"></div>
+    <div class="ring ring-3"></div>
+    <div class="core"><i class="fas fa-shield-halved"></i></div>
+  </div>
+  <div class="scan-overlay-title">Initiating Threat Hunt</div>
+  <div class="scan-overlay-subtitle" id="scanOverlayTarget">Preparing scan modules...</div>
+  <div class="scan-progress">
+    <div class="scan-progress-fill" id="scanProgressFill"></div>
+  </div>
+  <div class="scan-module-msg" id="scanModuleMsg">
+    <i class="fas fa-circle-notch fa-spin msg-icon"></i>
+    <span id="scanMsgText">Initializing reconnaissance modules...</span>
+  </div>
+</div>
+{% endblock %}
 
-    // Presets
-    const presets = {
-      recon: ["crawler","tech","headers","sec_headers","dns","whois","archive","urlscan","github","code_scan","security_txt","robots_txt","securitytrails","signatures","cve_alerts","owasp_top10"],
-      passive: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","virustotal","urlscan","otx","hibp","shodan","greynoise","abuseipdb","cloud_assets","owasp_top10"],
-      semi: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","screenshot","virustotal","urlscan","otx","code_scan","hibp","shodan","greynoise","abuseipdb","exposure_checks","fuzzer","workflow","sandbox","owasp_top10"]
-    };
-    document.getElementById('presetSelect').addEventListener('change', (e) => {
-      const vals = presets[e.target.value] || [];
-      document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => { cb.checked = false; cb.closest('.module-select-card').classList.remove('selected'); });
-      vals.forEach(v => {
-        const cb = document.querySelector(`input[name="services"][value="${v}"]`);
-        if (cb) { cb.checked = true; cb.closest('.module-select-card').classList.add('selected'); }
-      });
-      if (e.target.value === 'semi') document.querySelector('select[name="mode"]').value = 'semi';
-      updateCounter();
-    });
+{% block scripts %}
+<script>
+  // ============ Scan Loading Overlay ============
+  const scanOverlay = document.getElementById('scanOverlay');
+  const scanProgressFill = document.getElementById('scanProgressFill');
+  const scanMsgText = document.getElementById('scanMsgText');
+  const scanOverlayTarget = document.getElementById('scanOverlayTarget');
 
-    // Select All / Clear All
-    document.getElementById('selectAll').addEventListener('click', () => {
-      document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => { cb.checked = true; cb.closest('.module-select-card').classList.add('selected'); });
-      updateCounter();
-    });
-    document.getElementById('clearAll').addEventListener('click', () => {
-      document.querySelectorAll('.module-select-card input[type="checkbox"]').forEach(cb => { cb.checked = false; cb.closest('.module-select-card').classList.remove('selected'); });
-      updateCounter();
-    });
+  const scanMessages = [
+    'Initializing reconnaissance modules...',
+    'Preparing threat intelligence feeds...',
+    'Configuring subdomain enumeration...',
+    'Setting up vulnerability scanners...',
+    'Connecting to OSINT sources...',
+    'Analyzing target infrastructure...',
+    'Gathering security headers...',
+    'Querying threat databases...',
+    'Processing DNS records...',
+    'Correlating intelligence data...',
+    'Running entropy analysis...',
+    'Scanning for exposed secrets...',
+    'Mapping attack surface...',
+    'Finalizing scan parameters...'
+  ];
 
-    // HTMX loading state
-    document.body.addEventListener('htmx:beforeSend', function(e) {
-      if(e.detail.elt.id === "scanForm") {
-        const btn = document.querySelector("button[type='submit']");
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Initializing...';
+  let msgInterval = null;
+  let progressInterval = null;
+  let progressValue = 0;
+
+  function showScanOverlay(targetUrl) {
+    if (!scanOverlay) return;
+    scanOverlay.classList.add('active');
+    if (scanOverlayTarget) scanOverlayTarget.textContent = 'Scanning: ' + (targetUrl || '...');
+    progressValue = 0;
+    if (scanProgressFill) scanProgressFill.style.width = '0%';
+
+    let msgIdx = 0;
+    msgInterval = setInterval(() => {
+      if (scanMsgText) {
+        scanMsgText.style.opacity = '0';
+        setTimeout(() => {
+          scanMsgText.textContent = scanMessages[msgIdx % scanMessages.length];
+          scanMsgText.style.opacity = '1';
+          msgIdx++;
+        }, 200);
+      }
+    }, 2200);
+
+    progressInterval = setInterval(() => {
+      progressValue = Math.min(progressValue + Math.random() * 3, 92);
+      if (scanProgressFill) scanProgressFill.style.width = progressValue + '%';
+    }, 800);
+  }
+
+  function hideScanOverlay() {
+    if (!scanOverlay) return;
+    if (scanProgressFill) scanProgressFill.style.width = '100%';
+    clearInterval(msgInterval);
+    clearInterval(progressInterval);
+    setTimeout(() => {
+      scanOverlay.classList.remove('active');
+    }, 500);
+  }
+
+  // HTMX lifecycle: show overlay on scan submit, hide on SSE response
+  document.body.addEventListener('htmx:beforeSend', function(e) {
+    if (e.detail.elt && e.detail.elt.id === 'scanForm') {
+      const targetInput = document.getElementById('targetInput');
+      const targetUrl = targetInput ? targetInput.value : '';
+      showScanOverlay(targetUrl);
+
+      // Disable button
+      const btn = document.getElementById('launchBtn');
+      if (btn) {
         btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Initializing...';
+      }
+    }
+  });
+
+  document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target && e.detail.target.id === 'scan-results-container') {
+      hideScanOverlay();
+      // Re-enable button
+      const btn = document.getElementById('launchBtn');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-crosshairs"></i> Launch Hunt';
+      }
+    }
+  });
+
+  // Also hide if SSE sends "completed" event
+  document.body.addEventListener('htmx:sseMessage', function(e) {
+    if (e.detail && e.detail.type === 'completed') {
+      hideScanOverlay();
+    }
+  });
+
+  // ============ Profiles & Module Selection ============
+  const profiles = {
+    passive: ['crawler','headers','tech','dns','whois','subdomains','cert_transparency','passive_dns_history','sec_headers','tls','screenshot'],
+    active:  ['crawler','headers','tech','dns','whois','subdomains','cert_transparency','passive_dns_history','network_topology','sec_headers','tls','ssl_tls','owasp_top10','cors','cookie_audit','domain_risk_scoring','js_threat_analyzer','js_secrets','virustotal','otx','reputation_timeline','dark_web_footprint','infostealer_log_correlation','threat_intel_correlation','threat_actor_profiling','screenshot'],
+    full:    null, // null = all
+    custom:  null  // user picks
+  };
+
+  const profileLabels = { passive:'Passive Recon', active:'Security Audit', full:'Full Hunt', custom:'Custom' };
+  let currentProfile = 'full';
+
+  function selectProfile(el, profile) {
+    document.querySelectorAll('.profile-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    currentProfile = profile;
+    document.getElementById('profilePreview').textContent = profileLabels[profile];
+
+    const checkboxes = document.querySelectorAll('.module-check');
+    if (profile === 'custom') {
+      // Don't change selections
+    } else if (profiles[profile] === null) {
+      checkboxes.forEach(cb => cb.checked = true);
+    } else {
+      checkboxes.forEach(cb => {
+        cb.checked = profiles[profile].includes(cb.value);
+      });
+    }
+    updateCount();
+  }
+
+  function selectAllModules() {
+    document.querySelectorAll('.module-card:not([style*="display: none"]) .module-check').forEach(cb => cb.checked = true);
+    updateCount();
+  }
+
+  function deselectAllModules() {
+    document.querySelectorAll('.module-card:not([style*="display: none"]) .module-check').forEach(cb => cb.checked = false);
+    updateCount();
+  }
+
+  function filterModules(cat, e) {
+    document.querySelectorAll('.module-card').forEach(card => {
+      card.style.display = (cat === 'all' || card.dataset.cat === cat) ? '' : 'none';
+    });
+    document.querySelectorAll('#moduleSelector .tab-btn').forEach(btn => btn.classList.remove('active'));
+    if (e && e.target) e.target.closest('.tab-btn').classList.add('active');
+  }
+
+  function updateCount() {
+    const total = document.querySelectorAll('.module-check').length;
+    const checked = document.querySelectorAll('.module-check:checked').length;
+    document.getElementById('selectedCount').textContent = checked;
+    document.getElementById('modulePreview').textContent = checked;
+
+    const est = checked <= 5 ? '~30s' : checked <= 15 ? '~1-2 min' : checked <= 30 ? '~2-5 min' : '~5-10 min';
+    document.getElementById('timeEstimate').textContent = est;
+  }
+
+  // Module search
+  document.getElementById('moduleSearch').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('.module-card').forEach(card => {
+      const name = card.dataset.name || '';
+      const text = card.textContent.toLowerCase();
+      card.style.display = (text.includes(q) || name.includes(q)) ? '' : 'none';
+    });
+  });
+
+  // Target preview
+  document.getElementById('targetInput').addEventListener('input', function() {
+    document.getElementById('targetPreview').textContent = this.value || '—';
+  });
+
+  // Module check listeners
+  document.querySelectorAll('.module-check').forEach(cb => {
+    cb.addEventListener('change', updateCount);
+  });
+
+  // Init
+  updateCount();
+
+  // Module card click → toggle checkbox
+  document.querySelectorAll('.module-card').forEach(card => {
+    card.addEventListener('click', function(e) {
+      if (e.target.type !== 'checkbox') {
+        const cb = card.querySelector('.module-check');
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change'));
+        card.classList.toggle('selected', cb.checked);
       }
     });
+  });
 
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); document.getElementById('scanForm').submit(); }
-    });
-  </script>
-</body>
-</html>
+  // Initial selected state
+  document.querySelectorAll('.module-card').forEach(card => {
+    const cb = card.querySelector('.module-check');
+    card.classList.toggle('selected', cb.checked);
+  });
+</script>
+{% endblock %}
+

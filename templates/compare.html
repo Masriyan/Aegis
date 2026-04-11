@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}AEGIS — Compare Scans{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #f59e0b, #ef4444)"><i class="fas fa-code-compare"></i></div>
+    <div>
+      <h1 class="page-title">Scan Comparison</h1>
+      <p class="page-subtitle">Side-by-side diff of scan #{{ scan_a.id }} vs #{{ scan_b.id }}</p>
+    </div>
+  </div>
+  <div><a href="/scans" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i> History</a></div>
+</div>
+
+<!-- Summary Comparison -->
+<div class="grid lg:grid-cols-2 gap-6 mb-6">
+  <!-- Scan A -->
+  <div class="glass-card no-hover p-5">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="badge badge-info">Scan #{{ scan_a.id }}</span>
+      <span class="text-sm text-gray-400">{{ scan_a.scan_date }}</span>
+    </div>
+    <div class="text-sm font-mono text-gray-300 truncate mb-3">{{ scan_a.url }}</div>
+    <div class="grid grid-cols-3 gap-3">
+      <div class="text-center p-2 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Risk</div>
+        <div class="text-lg font-bold" style="color:{% if scan_a.risk > 70 %}var(--sev-critical){% elif scan_a.risk > 40 %}var(--sev-medium){% else %}var(--sev-ok){% endif %}">{{ scan_a.risk }}</div>
+      </div>
+      <div class="text-center p-2 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Modules</div>
+        <div class="text-lg font-bold text-blue-400">{{ scan_a.module_count }}</div>
+      </div>
+      <div class="text-center p-2 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Findings</div>
+        <div class="text-lg font-bold text-amber-400">{{ scan_a.finding_count }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scan B -->
+  <div class="glass-card no-hover p-5">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="badge badge-info">Scan #{{ scan_b.id }}</span>
+      <span class="text-sm text-gray-400">{{ scan_b.scan_date }}</span>
+    </div>
+    <div class="text-sm font-mono text-gray-300 truncate mb-3">{{ scan_b.url }}</div>
+    <div class="grid grid-cols-3 gap-3">
+      <div class="text-center p-2 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Risk</div>
+        <div class="text-lg font-bold" style="color:{% if scan_b.risk > 70 %}var(--sev-critical){% elif scan_b.risk > 40 %}var(--sev-medium){% else %}var(--sev-ok){% endif %}">{{ scan_b.risk }}</div>
+      </div>
+      <div class="text-center p-2 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Modules</div>
+        <div class="text-lg font-bold text-blue-400">{{ scan_b.module_count }}</div>
+      </div>
+      <div class="text-center p-2 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Findings</div>
+        <div class="text-lg font-bold text-amber-400">{{ scan_b.finding_count }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Risk Delta -->
+{% set delta = scan_b.risk - scan_a.risk %}
+<div class="glass-card no-hover p-5 mb-6">
+  <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Risk Score Delta</h3>
+  <div class="flex items-center gap-4">
+    <div class="flex items-center gap-2 text-2xl font-bold">
+      {% if delta > 0 %}
+        <i class="fas fa-arrow-up text-red-400"></i>
+        <span class="text-red-400">+{{ delta }}</span>
+      {% elif delta < 0 %}
+        <i class="fas fa-arrow-down text-green-400"></i>
+        <span class="text-green-400">{{ delta }}</span>
+      {% else %}
+        <i class="fas fa-equals text-gray-400"></i>
+        <span class="text-gray-400">0</span>
+      {% endif %}
+    </div>
+    <span class="text-sm text-gray-400">
+      {% if delta > 0 %}Risk increased — security may have degraded
+      {% elif delta < 0 %}Risk decreased — improvements detected
+      {% else %}No change in risk score
+      {% endif %}
+    </span>
+  </div>
+</div>
+
+<!-- Module Diff -->
+<div class="glass-card no-hover overflow-hidden">
+  <div class="p-4 border-b" style="border-color:var(--glass-border)">
+    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide"><i class="fas fa-list-check mr-1"></i> Module-by-Module Diff</h3>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Module</th>
+          <th>Scan #{{ scan_a.id }}</th>
+          <th>Scan #{{ scan_b.id }}</th>
+          <th>Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for mod_name in all_modules %}
+        <tr>
+          <td class="font-medium text-gray-300 text-sm">{{ mod_name.replace('_',' ').title() }}</td>
+          <td>
+            {% if mod_name in scan_a.results %}
+              <span class="badge badge-ok">Present</span>
+            {% else %}
+              <span class="badge badge-medium">Missing</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if mod_name in scan_b.results %}
+              <span class="badge badge-ok">Present</span>
+            {% else %}
+              <span class="badge badge-medium">Missing</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if mod_name in scan_a.results and mod_name in scan_b.results %}
+              {% if diff.get(mod_name) == 'changed' %}
+                <span class="badge badge-high"><i class="fas fa-pen"></i> Changed</span>
+              {% else %}
+                <span class="text-xs text-gray-500">No change</span>
+              {% endif %}
+            {% elif mod_name in scan_b.results and mod_name not in scan_a.results %}
+              <span class="badge badge-info"><i class="fas fa-plus"></i> Added</span>
+            {% elif mod_name in scan_a.results and mod_name not in scan_b.results %}
+              <span class="badge badge-critical"><i class="fas fa-minus"></i> Removed</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}AEGIS — Module Registry{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #10b981, #06b6d4)"><i class="fas fa-puzzle-piece"></i></div>
+    <div>
+      <h1 class="page-title">Module Registry</h1>
+      <p class="page-subtitle">{{ modules|length }} modules available across {{ categories|length }} categories</p>
+    </div>
+  </div>
+  <div>
+    <input type="text" id="modSearch" class="form-input" style="width:250px" placeholder="Search modules..." oninput="searchModules(this.value)">
+  </div>
+</div>
+
+<!-- Category Filter -->
+<div class="flex flex-wrap gap-2 mb-6">
+  <button class="btn btn-primary btn-sm" onclick="filterCat('all', this)">All ({{ modules|length }})</button>
+  {% for cat, count in categories.items() %}
+  <button class="btn btn-secondary btn-sm" onclick="filterCat('{{ cat }}', this)">
+    {{ cat|title }} ({{ count }})
+  </button>
+  {% endfor %}
+</div>
+
+<!-- Module Grid -->
+<div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" id="modGrid">
+  {% for mod in modules %}
+  <div class="glass-card p-4" data-cat="{{ mod.category }}" data-name="{{ mod.name }}">
+    <div class="flex items-start justify-between mb-3">
+      <div class="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style="background:rgba(59,130,246,0.1);color:var(--accent-blue-light)">
+        <i class="fas fa-cube"></i>
+      </div>
+      <div class="flex items-center gap-1.5">
+        {% if mod.api_key %}
+          <span class="badge badge-medium" title="API key required"><i class="fas fa-key"></i></span>
+        {% endif %}
+        <span class="badge badge-ok">Active</span>
+      </div>
+    </div>
+    <h4 class="text-sm font-semibold text-gray-200 mb-1">{{ mod.name.replace('_',' ').title() }}</h4>
+    <p class="text-xs text-gray-500 mb-3">{{ mod.description }}</p>
+    <div class="flex items-center justify-between">
+      <span class="text-xs text-gray-500">
+        <i class="fas fa-tag mr-1"></i>{{ mod.category }}
+      </span>
+      {% if mod.dependencies %}
+        <span class="text-xs text-gray-500" title="Depends on: {{ mod.dependencies|join(', ') }}">
+          <i class="fas fa-link mr-1"></i>{{ mod.dependencies|length }} deps
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if not modules %}
+<div class="empty-state glass-card no-hover p-12">
+  <div class="empty-icon"><i class="fas fa-puzzle-piece"></i></div>
+  <div class="empty-title">No Modules Loaded</div>
+  <div class="empty-desc">Modules from the <code>modules/</code> directory will appear here.</div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function searchModules(q) {
+    q = q.toLowerCase();
+    document.querySelectorAll('#modGrid > div').forEach(card => {
+      const text = card.textContent.toLowerCase();
+      card.style.display = text.includes(q) ? '' : 'none';
+    });
+  }
+
+  function filterCat(cat, btn) {
+    document.querySelectorAll('#modGrid > div').forEach(card => {
+      card.style.display = (cat === 'all' || card.dataset.cat === cat) ? '' : 'none';
+    });
+    document.querySelectorAll('.page-header ~ .flex button').forEach(b => {
+      b.className = b === btn ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    });
+  }
+</script>
+{% endblock %}

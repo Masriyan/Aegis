@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AEGIS — Advanced Threat Intelligence & Attack Surface Monitoring Platform">
+  <title>{% block title %}AEGIS{% endblock %}</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Icons -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- HTMX + SSE Extension -->
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="https://unpkg.com/htmx.org/dist/ext/sse.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- Aegis Design System -->
+  <link rel="stylesheet" href="/static/css/aegis.css">
+
+  <style>
+    .scan-status-bar {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(59,130,246,0.3);
+      padding: 0.5rem 1.25rem;
+      animation: slideDown .3s ease;
+    }
+    @keyframes slideDown { from { transform: translateY(-100%); opacity:0 } to { transform: translateY(0); opacity:1 } }
+    .scan-status-content { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .scan-chip {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.3rem 0.75rem; border-radius: 0.5rem;
+      font-size: 0.8rem; font-weight: 500;
+      transition: all .2s;
+    }
+    .scan-chip.running { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.4); color: #93c5fd; }
+    .scan-chip.pending { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; }
+    .scan-chip.success { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: #6ee7b7; }
+    .scan-chip.failure { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
+    .scan-chip a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+    .scan-chip .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;
+      animation: pulseDot 1.5s ease infinite;
+    }
+    .scan-chip.pending .pulse-dot { background: #f59e0b; }
+    @keyframes pulseDot { 0%,100% { opacity:1; transform:scale(1) } 50% { opacity:.4; transform:scale(.7) } }
+    .scan-chip .mod-count { font-size: 0.7rem; opacity: 0.7; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="bg-animated">
+
+  <div class="app-layout">
+    <!-- ============ SIDEBAR ============ -->
+    <aside id="sidebar" class="sidebar">
+      <!-- Logo -->
+      <div class="sidebar-logo">
+        <div class="logo-icon"><i class="fas fa-shield-halved"></i></div>
+        <span class="logo-text">AEGIS</span>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="sidebar-nav">
+        <div class="nav-section-title">Main</div>
+        <a href="/" class="nav-item" data-page="dashboard">
+          <i class="fas fa-gauge-high nav-icon"></i>
+          <span class="nav-label">Dashboard</span>
+        </a>
+        <a href="/scan/new" class="nav-item" data-page="scan">
+          <i class="fas fa-crosshairs nav-icon"></i>
+          <span class="nav-label">New Scan</span>
+        </a>
+        <a href="/scans" class="nav-item" data-page="scans">
+          <i class="fas fa-clock-rotate-left nav-icon"></i>
+          <span class="nav-label">Scan History</span>
+          {% if scan_count is defined and scan_count > 0 %}
+          <span class="nav-badge">{{ scan_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/queue" class="nav-item" data-page="queue">
+          <i class="fas fa-list-ul nav-icon"></i>
+          <span class="nav-label">Scan Queue</span>
+        </a>
+
+        <div class="nav-section-title">Intelligence</div>
+        <a href="/modules" class="nav-item" data-page="modules">
+          <i class="fas fa-puzzle-piece nav-icon"></i>
+          <span class="nav-label">Module Registry</span>
+        </a>
+        <a href="/scheduled" class="nav-item" data-page="scheduled">
+          <i class="fas fa-calendar-check nav-icon"></i>
+          <span class="nav-label">Scheduled</span>
+        </a>
+
+        <div class="nav-section-title">System</div>
+        <a href="/settings" class="nav-item" data-page="settings">
+          <i class="fas fa-gear nav-icon"></i>
+          <span class="nav-label">Settings</span>
+        </a>
+      </nav>
+
+      <!-- Footer -->
+      <div class="sidebar-footer">
+        <button id="sidebarToggle" class="sidebar-toggle">
+          <i class="fas fa-angles-left nav-icon"></i>
+          <span class="sidebar-footer-text">Collapse</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <div id="appMain" class="app-main">
+      <!-- ============ TOP BAR ============ -->
+      <header id="topbar" class="topbar">
+        <!-- Mobile menu button -->
+        <button id="mobileMenuToggle" class="topbar-btn" style="display:none">
+          <i class="fas fa-bars"></i>
+        </button>
+
+        <!-- Search -->
+        <div class="topbar-search">
+          <i class="fas fa-search search-icon"></i>
+          <input id="globalSearch" type="text" placeholder="Quick scan or search..." autocomplete="off">
+          <span class="search-shortcut">⌘K</span>
+        </div>
+
+        <!-- Actions -->
+        <div class="topbar-actions">
+          <a href="/scan/new" class="btn btn-primary btn-sm">
+            <i class="fas fa-plus"></i>
+            <span class="hidden sm:inline">New Scan</span>
+          </a>
+          <button class="topbar-btn" title="Notifications" id="notificationBtn">
+            <i class="fas fa-bell"></i>
+            <span class="notification-dot" style="display:none"></span>
+          </button>
+          <a href="/settings" class="topbar-btn" title="Settings">
+            <i class="fas fa-gear"></i>
+          </a>
+        </div>
+      </header>
+
+      <!-- ============ GLOBAL SCAN STATUS BAR ============ -->
+      <div id="scanStatusBar" style="display:none" class="scan-status-bar">
+        <div id="scanStatusContent" class="scan-status-content"></div>
+      </div>
+
+      <!-- ============ PAGE CONTENT ============ -->
+      <main class="page-content" style="padding-bottom: 3rem">
+        {% block content %}{% endblock %}
+      </main>
+
+      <!-- ============ STATUS FOOTER ============ -->
+      <footer id="statusFooter" class="status-footer">
+        <div class="px-6 py-4 border-t border-white/5">
+          <div class="status-indicator">
+            <div class="text-xs uppercase tracking-wider text-gray-500 font-bold mb-3 flex items-center justify-between">
+              System Status
+              <i class="fas fa-server"></i>
+            </div>
+            
+            <div class="space-y-2">
+              <span class="status-item" id="dbStatus">
+                Database
+                <span class="status-dot" id="dbDot"></span>
+              </span>
+              
+              <span class="status-item" id="executorStatus">
+                Task Executor
+                <span class="status-dot online"></span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="status-items">
+          <span class="status-item" id="scanCountStatus">—</span>
+          <span class="status-item">
+            <i class="fas fa-shield-halved" style="color:var(--accent-blue)"></i>
+            Masriyan
+          </span>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Aegis JS -->
+  <script src="/static/js/aegis.js"></script>
+
+  <!-- Health Check Polling -->
+  <script>
+    (function() {
+      setInterval(() => {
+        fetch('/healthz')
+          .then(r => r.json())
+          .then(data => {
+            const dd = document.getElementById('dbDot');
+            if (dd) dd.className = 'status-dot ' + (data.database === 'up' ? 'online' : 'warning');
+          })
+          .catch(() => {
+            const dd = document.getElementById('dbDot');
+            if (dd) dd.className = 'status-dot offline';
+          });
+      }, 30000);
+
+      // Mobile menu button visibility
+      function checkMobile() {
+        const btn = document.getElementById('mobileMenuToggle');
+        if (btn) btn.style.display = window.innerWidth <= 1024 ? 'flex' : 'none';
+      }
+      checkMobile();
+      window.addEventListener('resize', checkMobile);
+    })();
+  </script>
+
+  <!-- Global Scan Status Poller -->
+  <script>
+  (function(){
+    const bar = document.getElementById('scanStatusBar');
+    const content = document.getElementById('scanStatusContent');
+    if (!bar || !content) return;
+
+    // Track which finished tasks we've already shown so we can auto-dismiss
+    const shownFinished = {};
+
+    function truncUrl(u, max) {
+      if (!u) return '?';
+      try { u = new URL(u).hostname } catch(e) {}
+      return u.length > max ? u.slice(0, max) + '...' : u;
+    }
+
+    function poll() {
+      fetch('/api/v1/tasks/active')
+        .then(r => r.json())
+        .then(data => {
+          const chips = [];
+
+          // Active / pending tasks
+          (data.active || []).forEach(t => {
+            const isRunning = t.state === 'PROGRESS';
+            const cls = isRunning ? 'running' : 'pending';
+            const icon = isRunning
+              ? '<span class="pulse-dot"></span>'
+              : '<i class="fas fa-clock" style="font-size:0.7rem"></i>';
+            const mods = (t.completed_modules || []).length;
+            const modLabel = isRunning && mods > 0 ? `<span class="mod-count">${mods} modules done</span>` : '';
+            chips.push(
+              `<span class="scan-chip ${cls}" title="Task ${t.id}">${icon} ${truncUrl(t.url, 28)} ${modLabel}</span>`
+            );
+          });
+
+          // Recently finished (show for ~15s then fade)
+          (data.recent || []).forEach(t => {
+            if (shownFinished[t.id] && Date.now() - shownFinished[t.id] > 15000) return;
+            if (!shownFinished[t.id]) shownFinished[t.id] = Date.now();
+
+            if (t.state === 'SUCCESS' && t.scan_id) {
+              chips.push(
+                `<span class="scan-chip success"><i class="fas fa-check-circle" style="font-size:0.7rem"></i> ${truncUrl(t.url, 22)} <a href="/view/${t.scan_id}">View Results</a></span>`
+              );
+            } else if (t.state === 'FAILURE') {
+              chips.push(
+                `<span class="scan-chip failure"><i class="fas fa-exclamation-circle" style="font-size:0.7rem"></i> ${truncUrl(t.url, 22)} failed</span>`
+              );
+            }
+          });
+
+          if (chips.length > 0) {
+            bar.style.display = 'block';
+            content.innerHTML = '<i class="fas fa-satellite-dish text-blue-400" style="font-size:0.85rem"></i> ' + chips.join('');
+          } else {
+            bar.style.display = 'none';
+          }
+        })
+        .catch(() => {});
+    }
+
+    poll();
+    setInterval(poll, 3000);
+  })();
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

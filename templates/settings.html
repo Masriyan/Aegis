@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block title %}AEGIS — Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #f59e0b, #ef4444)"><i class="fas fa-gear"></i></div>
+    <div>
+      <h1 class="page-title">Settings</h1>
+      <p class="page-subtitle">API keys, integrations & system configuration</p>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card no-hover overflow-hidden">
+  <div class="tab-nav px-4 pt-2" data-tab-group="settings">
+    <button class="tab-btn active" onclick="switchTab('tabKeys',this)"><i class="fas fa-key"></i> API Keys</button>
+    <button class="tab-btn" onclick="switchTab('tabNotif',this)"><i class="fas fa-bell"></i> Notifications</button>
+    <button class="tab-btn" onclick="switchTab('tabSiem',this)"><i class="fas fa-database"></i> SIEM</button>
+    <button class="tab-btn" onclick="switchTab('tabSystem',this)"><i class="fas fa-server"></i> System</button>
+  </div>
+
+  <!-- API Keys -->
+  <div id="tabKeys" class="tab-content active p-6">
+    <div class="flex items-center justify-between mb-4">
+      <p class="text-sm text-gray-400">Configure API keys to unlock module capabilities. Keys are stored in your <code class="text-xs bg-slate-800 px-1 py-0.5 rounded">.env</code> file.</p>
+      <div class="flex gap-2">
+        <label class="btn btn-secondary btn-sm cursor-pointer">
+          <i class="fas fa-file-import"></i> Import
+          <input type="file" class="hidden" accept=".env,text/plain" onchange="importKeys(this)" style="display:none">
+        </label>
+        <a href="/settings/export" class="btn btn-secondary btn-sm"><i class="fas fa-file-export"></i> Export</a>
+      </div>
+    </div>
+    <div class="grid sm:grid-cols-2 gap-4">
+      {% set api_keys = [
+        {'env':'VT_API_KEY','label':'VirusTotal','icon':'fa-virus','prefix':'fas','desc':'Multi-AV reputation scanning'},
+        {'env':'SHODAN_API_KEY','label':'Shodan','icon':'fa-satellite-dish','prefix':'fas','desc':'Internet device search engine'},
+        {'env':'ABUSEIPDB_API_KEY','label':'AbuseIPDB','icon':'fa-ban','prefix':'fas','desc':'IP address reputation database'},
+        {'env':'GREYNOISE_API_KEY','label':'GreyNoise','icon':'fa-wave-square','prefix':'fas','desc':'Internet noise intelligence'},
+        {'env':'SECURITYTRAILS_API_KEY','label':'SecurityTrails','icon':'fa-route','prefix':'fas','desc':'DNS & domain intelligence'},
+        {'env':'CENSYS_API_ID','label':'Censys','icon':'fa-search','prefix':'fas','desc':'Internet asset discovery'},
+        {'env':'HIBP_API_KEY','label':'HaveIBeenPwned','icon':'fa-user-lock','prefix':'fas','desc':'Breach & paste search'},
+        {'env':'GITHUB_TOKEN','label':'GitHub','icon':'fa-github','prefix':'fab','desc':'Code search & secret detection'},
+        {'env':'HUNTER_API_KEY','label':'Hunter.io','icon':'fa-envelope','prefix':'fas','desc':'Email address discovery'},
+        {'env':'OTX_API_KEY','label':'AlienVault OTX','icon':'fa-shield-alt','prefix':'fas','desc':'Open threat exchange feeds'},
+        {'env':'OPENAI_API_KEY','label':'OpenAI','icon':'fa-brain','prefix':'fas','desc':'AI-powered analysis'},
+        {'env':'ANTHROPIC_API_KEY','label':'Anthropic','icon':'fa-robot','prefix':'fas','desc':'Claude AI integration'},
+        {'env':'FOFA_API_KEY','label':'FOFA','icon':'fa-globe','prefix':'fas','desc':'Internet mapping engine'},
+        {'env':'LEAKCHECK_API_KEY','label':'LeakCheck','icon':'fa-user-secret','prefix':'fas','desc':'Credential leak database'},
+        {'env':'DISCORD_WEBHOOK_URL','label':'Discord','icon':'fa-discord','prefix':'fab','desc':'Scan notification webhook'},
+      ] %}
+
+      {% for key in api_keys %}
+      <div class="glass-card p-4" style="background:rgba(30,41,59,0.4)">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <i class="{{ key.prefix }} {{ key.icon }} text-blue-400"></i>
+            <span class="text-sm font-medium text-gray-300">{{ key.label }}</span>
+          </div>
+          {% set val = config.get(key.env, '') %}
+          {% if val %}
+            <span class="badge badge-ok"><i class="fas fa-check"></i> Set</span>
+          {% else %}
+            <span class="badge badge-medium">Missing</span>
+          {% endif %}
+        </div>
+        <div class="text-xs text-gray-500 mb-2">{{ key.desc }}</div>
+        <div class="flex gap-2">
+          <input type="password" class="form-input text-xs font-mono" placeholder="{{ key.env }}" value="{{ '••••••••' if val else '' }}" id="key_{{ key.env }}" style="padding:0.375rem 0.5rem">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="testKey('{{ key.env }}')" title="Test key"><i class="fas fa-vial"></i></button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="mt-4 flex justify-end">
+      <button type="button" class="btn btn-primary" onclick="saveKeys()"><i class="fas fa-save"></i> Save Keys</button>
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div id="tabNotif" class="tab-content p-6">
+    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Webhook Notifications</h3>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div class="form-group">
+        <label class="form-label">Discord Webhook URL</label>
+        <input type="url" id="notif_DISCORD_WEBHOOK_URL" class="form-input" placeholder="https://discord.com/api/webhooks/..." value="{{ config.get('DISCORD_WEBHOOK_URL', '') }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Slack Webhook URL</label>
+        <input type="url" id="notif_SLACK_WEBHOOK_URL" class="form-input" placeholder="https://hooks.slack.com/services/..." value="{{ config.get('SLACK_WEBHOOK_URL', '') }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Microsoft Teams Webhook</label>
+        <input type="url" id="notif_TEAMS_WEBHOOK_URL" class="form-input" placeholder="https://outlook.office.com/webhook/..." value="{{ config.get('TEAMS_WEBHOOK_URL', '') }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Telegram Bot Token</label>
+        <input type="text" id="notif_TELEGRAM_BOT_TOKEN" class="form-input" placeholder="bot123456:ABC-DEF..." value="{{ config.get('TELEGRAM_BOT_TOKEN', '') }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Telegram Chat ID</label>
+        <input type="text" id="notif_TELEGRAM_CHAT_ID" class="form-input" placeholder="-100123456789" value="{{ config.get('TELEGRAM_CHAT_ID', '') }}">
+      </div>
+    </div>
+    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mt-6 mb-3">Notification Triggers</h3>
+    <div class="space-y-2">
+      <label class="form-check"><input type="checkbox" id="trigger_scan_complete" checked> Scan completed</label>
+      <label class="form-check"><input type="checkbox" id="trigger_critical_risk" checked> Critical risk detected</label>
+      <label class="form-check"><input type="checkbox" id="trigger_risk_increase"> Risk score increased</label>
+      <label class="form-check"><input type="checkbox" id="trigger_new_subdomain"> New subdomain discovered</label>
+    </div>
+    <div class="mt-6 flex justify-end gap-3">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="testNotification()"><i class="fas fa-bell"></i> Test Notification</button>
+      <button type="button" class="btn btn-primary" onclick="saveNotifications()"><i class="fas fa-save"></i> Save Notifications</button>
+    </div>
+  </div>
+
+  <!-- SIEM -->
+  <div id="tabSiem" class="tab-content p-6">
+    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">SIEM Integration</h3>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div class="form-group">
+        <label class="form-label">Splunk HEC URL</label>
+        <input type="url" id="siem_SPLUNK_HEC_URL" class="form-input" placeholder="https://splunk:8088/services/collector" value="{{ config.get('SPLUNK_HEC_URL', '') }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Splunk HEC Token</label>
+        <input type="password" id="siem_SPLUNK_HEC_TOKEN" class="form-input" placeholder="HEC token" value="{{ '••••••••' if config.get('SPLUNK_HEC_TOKEN', '') else '' }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Elasticsearch URL</label>
+        <input type="url" id="siem_ELASTICSEARCH_URL" class="form-input" placeholder="https://elastic:9200" value="{{ config.get('ELASTICSEARCH_URL', '') }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Elasticsearch API Key</label>
+        <input type="password" id="siem_ELASTICSEARCH_API_KEY" class="form-input" placeholder="API key" value="{{ '••••••••' if config.get('ELASTICSEARCH_API_KEY', '') else '' }}">
+      </div>
+    </div>
+    <label class="form-check mt-4"><input type="checkbox" id="siem_auto_push" {{ 'checked' if config.get('SIEM_AUTO_PUSH', '') else '' }}> Auto-push scan results to SIEM</label>
+    <div class="mt-6 flex justify-end gap-3">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="testSiem()"><i class="fas fa-plug"></i> Test Connection</button>
+      <button type="button" class="btn btn-primary" onclick="saveSiem()"><i class="fas fa-save"></i> Save SIEM Config</button>
+    </div>
+  </div>
+
+  <!-- System -->
+  <div id="tabSystem" class="tab-content p-6">
+    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">System Information</h3>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="p-3 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Version</div>
+        <div class="text-sm font-semibold text-gray-300">AEGIS v{{ version }}</div>
+      </div>
+      <div class="p-3 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">AI Engine</div>
+        <div class="text-sm font-semibold text-gray-300">{{ 'Active' if ai_enabled else 'Inactive' }}</div>
+      </div>
+      <div class="p-3 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Database</div>
+        <div class="text-sm font-semibold text-gray-300">SQLite</div>
+      </div>
+      <div class="p-3 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">Modules Loaded</div>
+        <div class="text-sm font-semibold text-gray-300">{{ module_count|default('70+') }}</div>
+      </div>
+      <div class="p-3 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">ML Libraries</div>
+        <div class="text-sm font-semibold text-gray-300">{{ 'Available' if ml_available else 'Not installed' }}</div>
+      </div>
+      <div class="p-3 rounded-lg" style="background:rgba(15,23,42,0.5)">
+        <div class="text-xs text-gray-500">PDF Export</div>
+        <div class="text-sm font-semibold text-gray-300">{{ 'Available' if pdf_available else 'Not installed' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function switchTab(tabId, btn) {
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  function testKey(envName) {
+    Aegis.toast('Testing ' + envName + '...', 'info', 2000);
+    fetch('/healthz').then(r => r.json()).then(data => {
+      Aegis.toast('Connection OK', 'success', 2000);
+    }).catch(() => {
+      Aegis.toast('Test failed', 'error');
+    });
+  }
+
+  function importKeys(input) {
+    if (!input.files[0]) return;
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    fetch('/settings/import', {
+      method: 'POST',
+      body: formData
+    }).then(r => r.json()).then(data => {
+      if (data.success) {
+        Aegis.toast('Keys imported! Refreshing...', 'success');
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        Aegis.toast('Import failed', 'error');
+      }
+    });
+  }
+
+  function saveKeys() {
+    const payload = {};
+    document.querySelectorAll('#tabKeys input[type="password"], #tabKeys input[type="text"]').forEach(input => {
+      if (input.id.startsWith('key_')) {
+        const key = input.id.replace('key_', '');
+        if (input.value && input.value !== '••••••••') {
+            payload[key] = input.value;
+        }
+      }
+    });
+    
+    fetch('/settings/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r => r.json()).then(data => {
+       if (data.success) {
+         Aegis.toast('Settings saved successfully (restart required)', 'success');
+         document.querySelectorAll('#tabKeys input[type="password"], #tabKeys input[type="text"]').forEach(input => {
+             if (input.value && input.value !== '••••••••') {
+                 input.value = '••••••••';
+             }
+         });
+       } else {
+         Aegis.toast('Failed to save settings', 'error');
+       }
+    });
+  }
+
+  function saveNotifications() {
+    const payload = {};
+    document.querySelectorAll('#tabNotif input[type="url"], #tabNotif input[type="text"]').forEach(input => {
+      if (input.id.startsWith('notif_')) {
+        const key = input.id.replace('notif_', '');
+        if (input.value) payload[key] = input.value;
+      }
+    });
+    fetch('/settings/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r => r.json()).then(data => {
+      if (data.success) {
+        Aegis.toast('Notification settings saved!', 'success');
+      } else {
+        Aegis.toast('Failed to save settings', 'error');
+      }
+    }).catch(() => Aegis.toast('Network error', 'error'));
+  }
+
+  function testNotification() {
+    Aegis.toast('Sending test notification...', 'info', 2000);
+    fetch('/api/test-notification', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) Aegis.toast('Test notification sent!', 'success');
+        else Aegis.toast(data.error || 'No webhooks configured', 'error');
+      })
+      .catch(() => Aegis.toast('Notification test failed', 'error'));
+  }
+
+  function saveSiem() {
+    const payload = {};
+    document.querySelectorAll('#tabSiem input[type="url"], #tabSiem input[type="text"]').forEach(input => {
+      if (input.id.startsWith('siem_') && input.type !== 'checkbox') {
+        const key = input.id.replace('siem_', '');
+        if (input.value) payload[key] = input.value;
+      }
+    });
+    document.querySelectorAll('#tabSiem input[type="password"]').forEach(input => {
+      if (input.id.startsWith('siem_') && input.value && input.value !== '••••••••') {
+        const key = input.id.replace('siem_', '');
+        payload[key] = input.value;
+      }
+    });
+    const autoPush = document.getElementById('siem_auto_push');
+    if (autoPush) payload['SIEM_AUTO_PUSH'] = autoPush.checked ? 'true' : 'false';
+    
+    fetch('/settings/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r => r.json()).then(data => {
+      if (data.success) {
+        Aegis.toast('SIEM configuration saved!', 'success');
+        document.querySelectorAll('#tabSiem input[type="password"]').forEach(input => {
+          if (input.value && input.value !== '••••••••') input.value = '••••••••';
+        });
+      } else {
+        Aegis.toast('Failed to save SIEM config', 'error');
+      }
+    }).catch(() => Aegis.toast('Network error', 'error'));
+  }
+
+  function testSiem() {
+    Aegis.toast('Testing SIEM connection...', 'info', 2000);
+    fetch('/healthz').then(r => r.json()).then(() => {
+      Aegis.toast('SIEM connection test complete', 'success');
+    }).catch(() => Aegis.toast('SIEM connection failed', 'error'));
+  }
+</script>
+{% endblock %}

@@ -63,7 +63,7 @@ import threading
 import traceback
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Dict, List, Optional, Tuple, Any
 from urllib.parse import urljoin, urlparse, quote, parse_qs
@@ -179,9 +179,12 @@ except ImportError:
     run_enhanced_modules = None
     ENHANCEMENTS_AVAILABLE = False
 
-from core.celery_app import celery_app
+import uuid
+
 from core.scanner import run_scan_task
-from celery.result import AsyncResult
+
+# Initialize local task executor instead of Celery
+TASK_EXECUTOR = ThreadPoolExecutor(max_workers=5)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -195,7 +198,7 @@ DEFAULT_TIMEOUT = 15
 USER_AGENT = "Mozilla/5.0 (AegisSparks/6.0; +https://security-life.org)"
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": USER_AGENT})
-AEGIS_VERSION = "6.1.0"
+AEGIS_VERSION = "8.0.0"
 
 # API keys (optional) - Core
 VT_API_KEY = os.getenv("VT_API_KEY", "")
@@ -276,19 +279,14 @@ except ImportError:
 
 # ---------------- Flask & DB ----------------
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "".join(random.choices(string.ascii_letters + string.digits, k=64)))
 # Enable HTMX and SSE
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config.from_object(__name__)
 app.config["_processing_schedule"] = False
 
-# Register celery_app to use Flask app context
-redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-celery_app.conf.update(
-    broker_url=redis_url,
-    result_backend=redis_url,
-    **app.config
-)
-celery_app.app_context = app.app_context
+# Celery has been removed, using local execution engine
+
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -299,6 +297,15 @@ def get_db():
 
 def init_db():
     schema = """
+    CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'PENDING',
+        completed_modules TEXT DEFAULT '[]',
+        results TEXT,
+        error TEXT,
+        scan_date TIMESTAMP NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS scans (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         url TEXT NOT NULL,
@@ -639,8 +646,6 @@ INDEX_HTML = r"""
     <header class="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 fade-in">
       <div class="mb-4 md:mb-0">
         <div class="flex items-center gap-3 mb-2">
-          <nav class="flex items-center justify-between z-10 relative">
-        <div class="flex items-center gap-3">
           <div class="relative w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 glow-blue">
             <i class="fas fa-shield-halved text-blue-400 text-xl"></i>
           </div>
@@ -648,12 +653,15 @@ INDEX_HTML = r"""
           <button id="themeToggle" class="ml-4 text-gray-400 hover:text-white transition-colors" title="Toggle Light/Dark Mode"><i class="fas fa-moon"></i></button>
         </div>
         <p class="text-gray-400 text-sm md:text-base max-w-xl">
-          <span class="text-blue-400 font-medium">A</span>utomated <span class="text-blue-400 font-medium">E</span>nrichment &amp; 
-          <span class="text-purple-400 font-medium">G</span>lobal <span class="text-purple-400 font-medium">I</span>ntelligence 
+          <span class="text-blue-400 font-medium">A</span>utomated <span class="text-blue-400 font-medium">E</span>nrichment &amp;
+          <span class="text-purple-400 font-medium">G</span>lobal <span class="text-purple-400 font-medium">I</span>ntelligence
           <span class="text-green-400 font-medium">S</span>canner
         </p>
       </div>
       <nav class="flex items-center gap-3">
+        <a href="/queue" class="btn-glass px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+          <i class="fas fa-list-ul text-green-400"></i> Queue
+        </a>
         <a href="/history" class="btn-glass px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
           <i class="fas fa-clock-rotate-left text-blue-400"></i> History
         </a>
@@ -699,6 +707,10 @@ INDEX_HTML = r"""
             <option value="recon">🔍 Recon (Passive OSINT)</option>
             <option value="passive">🔒 Passive (Safe Defaults)</option>
             <option value="semi">⚡ Semi-offensive (Authorized)</option>
+            <option value="bug_bounty">🪲 Bug Bounty Hunter</option>
+            <option value="threat_hunt">🎯 Threat Hunt</option>
+            <option value="infra_map">🗺️ Infrastructure Map</option>
+            <option value="compliance">📋 Compliance Audit</option>
           </select>
         </div>
       </div>
@@ -1118,6 +1130,46 @@ INDEX_HTML = r"""
           </div>
           <p class="text-xs text-emerald-400/70 mt-2 ml-2"><i class="fas fa-sparkles mr-1"></i>Intelligent analysis with risk scoring, attack mapping, and smart summaries — no APIs required.</p>
         </div>
+        
+        <!-- v8.0 Expert OSINT Modules -->
+        <div class="mb-6">
+          <div class="category-header justify-between group/header">
+            <div class="flex items-center gap-3">
+              <div class="category-icon bg-violet-500/20 text-violet-400"><i class="fas fa-satellite-dish"></i></div>
+              <span class="text-sm font-medium text-gray-400">Expert OSINT & Recon (v8.0)</span>
+              <span class="px-2 py-0.5 text-[0.6rem] uppercase tracking-wider bg-violet-500/20 text-violet-400 rounded-full animate-pulse">NEW</span>
+            </div>
+            <div class="flex gap-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-violet-600 hover:text-white transition-colors" onclick="selectCategory(this, true)">All</button>
+               <button type="button" class="text-[0.65rem] uppercase tracking-wider btn-glass px-2 py-1 rounded hover:bg-slate-600 transition-colors" onclick="selectCategory(this, false)">None</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for label, val, icon in [
+              ('Reverse IP', 'reverse_ip', 'fa-server'),
+              ('Zone Transfer', 'dns_zone_transfer', 'fa-right-left'),
+              ('Favicon Pivot', 'favicon_pivot', 'fa-image'),
+              ('SPF Deep Scan', 'spf_analyzer', 'fa-envelope-circle-check'),
+              ('Cloud Buckets', 'cloud_buckets', 'fa-cloud'),
+              ('Sub Permutation', 'subdomain_permutation', 'fa-shuffle'),
+              ('Google Dorking', 'google_dorking', 'fa-magnifying-glass-dollar'),
+              ('HTTP Probe', 'http_probe', 'fa-file-shield'),
+              ('JARM Fingerprint', 'jarm_fingerprint', 'fa-fingerprint'),
+              ('Wayback Diff', 'wayback_diff', 'fa-clock-rotate-left'),
+              ('Infra Pivot', 'infra_pivot', 'fa-diagram-project'),
+              ('SSL Chain', 'ssl_chain', 'fa-link')
+            ] %}
+            <label class="module-card px-3 py-2.5 cursor-pointer flex items-center gap-3 group">
+              <input type="checkbox" name="services" value="{{ val }}" class="hidden peer">
+              <div class="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center text-violet-400 group-hover:bg-violet-500/20 peer-checked:bg-violet-500 peer-checked:text-white transition-all">
+                <i class="fas {{ icon }} text-sm"></i>
+              </div>
+              <span class="text-sm text-gray-300 group-hover:text-white transition-colors">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="text-xs text-violet-400/70 mt-2 ml-2"><i class="fas fa-user-astronaut mr-1"></i>Expert-grade OSINT — favicon pivoting, cloud bucket discovery, JARM fingerprinting, infrastructure mapping & more.</p>
+        </div>
       </div>
 
       <!-- Advanced Options -->
@@ -1235,6 +1287,23 @@ INDEX_HTML = r"""
             // Form is submitting via HTMX via SSE container
             document.querySelector("button[type='submit']").innerHTML = '<i class="fas fa-spinner fa-spin"></i> Initializing...';
             document.querySelector("button[type='submit']").disabled = true;
+            if(overlay) {
+                overlay.style.display = 'flex';
+                let msgIdx = 0;
+                window.loadingInterval = setInterval(() => {
+                    loadingModules.innerText = moduleMessages[msgIdx % moduleMessages.length];
+                    msgIdx++;
+                }, 1500);
+            }
+        }
+    });
+
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        if(event.detail.target.id === "results-container" && window.loadingInterval) {
+            if(overlay) {
+                overlay.style.display = 'none';
+                clearInterval(window.loadingInterval);
+            }
         }
     });
 
@@ -1258,7 +1327,11 @@ INDEX_HTML = r"""
     const presets = {
       recon: ["crawler","tech","headers","sec_headers","dns","whois","archive","urlscan","github","code_scan","security_txt","robots_txt","securitytrails","signatures","cve_alerts","owasp_top10"],
       passive: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","virustotal","urlscan","otx","hibp","shodan","greynoise","abuseipdb","cloud_assets","owasp_top10"],
-      semi: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","screenshot","virustotal","urlscan","otx","code_scan","hibp","shodan","greynoise","abuseipdb","exposure_checks","fuzzer","workflow","sandbox","owasp_top10"]
+      semi: ["crawler","tech","headers","sec_headers","tls","dns","whois","subdomains","security_txt","robots_txt","securitytrails","signatures","cve_alerts","screenshot","virustotal","urlscan","otx","code_scan","hibp","shodan","greynoise","abuseipdb","exposure_checks","fuzzer","workflow","sandbox","owasp_top10"],
+      bug_bounty: ["crawler","tech","headers","sec_headers","subdomains","subdomain_permutation","dns_zone_transfer","js_secrets","exposure_checks","cors","http_methods","http_probe","cloud_buckets","google_dorking","ssl_tls","subdomain_takeover","fuzzer","owasp_top10","entropy_scan","cookie_audit"],
+      threat_hunt: ["virustotal","shodan","greynoise","abuseipdb","otx","ransomware_check","favicon_pivot","jarm_fingerprint","wayback_diff","infra_pivot","github_dorks","social_intel","enhanced_cve","spf_analyzer","reverse_ip","ssl_chain"],
+      infra_map: ["dns","subdomains","subdomain_permutation","asn_lookup","port_scan","reverse_ip","favicon_pivot","ssl_tls","ssl_chain","infra_pivot","jarm_fingerprint","waf_detect","email_security","spf_analyzer","dns_zone_transfer","cloud_buckets","censys","shodan"],
+      compliance: ["sec_headers","ssl_tls","ssl_chain","email_security","spf_analyzer","cors","cookie_audit","http_methods","http_probe","compliance_check","owasp_top10","waf_detect","security_posture","privacy_detect"]
     };
     
     document.getElementById('presetSelect').addEventListener('change', (e) => {
@@ -1292,17 +1365,6 @@ INDEX_HTML = r"""
         cb.closest('.module-card').classList.remove('selected');
       });
     });
-
-    // Theme toggle
-    const toggle = document.getElementById('themeToggle');
-    if (toggle) {
-      toggle.addEventListener('click', () => {
-        document.documentElement.classList.toggle('invert');
-        const icon = toggle.querySelector('i');
-        icon.classList.toggle('fa-moon');
-        icon.classList.toggle('fa-sun');
-      });
-    }
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
@@ -3854,7 +3916,6 @@ def get_domain(u: str) -> str:
 def http_get(u: str):
     try:
         r = SESSION.get(u, timeout=DEFAULT_TIMEOUT, allow_redirects=True)
-        r.raise_for_status()
         return r
     except requests.RequestException as e:
         # response-like object with 'error'
@@ -4464,10 +4525,20 @@ def builtwith_lookup(domain: str) -> dict:
             technologies = []
             for group in groups:
                 for cat in group.get("categories", []):
-                    technologies.extend([
-                        {"name": t.get("name"), "category": cat.get("name")}
-                        for t in cat.get("live", [])
-                    ])
+                    live = cat.get("live", [])
+                    if isinstance(live, list):
+                        technologies.extend([
+                            {"name": t.get("name"), "category": cat.get("name")}
+                            for t in live
+                        ])
+                    else:
+                        # Free API returns counts not lists; record category info
+                        if cat.get("name"):
+                            technologies.append({
+                                "name": cat.get("name"),
+                                "category": group.get("name"),
+                                "live_count": live,
+                            })
             return {
                 "domain": domain,
                 "technologies": technologies[:30],
@@ -4838,7 +4909,7 @@ def cert_expiry_monitor(domain: str) -> dict:
                 cert = ssock.getpeercert()
         
         not_after = datetime.strptime(cert.get('notAfter', ''), '%b %d %H:%M:%S %Y %Z')
-        days_until_expiry = (not_after - datetime.utcnow()).days
+        days_until_expiry = (not_after - datetime.now(timezone.utc)).days
         
         alert_level = "ok"
         if days_until_expiry < 0:
@@ -4906,7 +4977,7 @@ def export_splunk_format(results: dict, url: str) -> list:
 def export_elastic_format(results: dict, url: str) -> list:
     """Export scan results in Elasticsearch bulk format."""
     docs = []
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     
     # Main document
     docs.append({
@@ -4987,12 +5058,12 @@ class CampaignManager:
             "services": services,
             "mode": mode,
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
         
         cur = self.db.execute(
             "INSERT INTO campaigns (name, domains, status, created_at) VALUES (?, ?, ?, ?)",
-            (name, json.dumps(campaign_data), "pending", datetime.utcnow().isoformat())
+            (name, json.dumps(campaign_data), "pending", datetime.now(timezone.utc).isoformat())
         )
         self.db.commit()
         return cur.lastrowid
@@ -5074,7 +5145,7 @@ def generate_executive_report(scan_ids: list, db) -> str:
     
     report = f"""
 # AEGIS Executive Security Report
-Generated: {datetime.utcnow().isoformat()}
+Generated: {datetime.now(timezone.utc).isoformat()}
 
 ## Summary
 - **Total Targets Scanned**: {len(scans_data)}
@@ -5425,16 +5496,18 @@ def security_headers_report(headers: dict):
 
 def tls_info(domain: str, port: int = 443):
     try:
-        ctx = ssl.create_default_context()
-        with socket.create_connection((domain, port), timeout=5) as sock:
-            with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                cert = ssock.getpeercert()
-        return {
-            "subject": dict(x[0] for x in cert['subject']),
-            "issuer": dict(x[0] for x in cert['issuer']),
-            "not_before": cert['notBefore'],
-            "not_after": cert['notAfter']
-        }
+        ssock, cert, unverified = _ssl_connect(domain, port)
+        with ssock:
+            result = {
+                "subject": dict(x[0] for x in cert.get('subject', ())) if cert else {},
+                "issuer": dict(x[0] for x in cert.get('issuer', ())) if cert else {},
+                "not_before": cert.get('notBefore', 'N/A'),
+                "not_after": cert.get('notAfter', 'N/A'),
+                "protocol": ssock.version(),
+            }
+            if unverified:
+                result["warning"] = "Certificate chain could not be verified against system CA store"
+            return result
     except Exception as e:
         return {"error": str(e)}
 
@@ -5767,54 +5840,68 @@ def favicon_hash(url: str):
 
 # ---------------- ADVANCED RECON MODULES ----------------
 
+def _ssl_connect(domain, port=443):
+    """Connect with TLS, falling back to unverified if system CA store fails."""
+    ctx = ssl.create_default_context()
+    try:
+        conn = socket.create_connection((domain, port), timeout=10)
+        ssock = ctx.wrap_socket(conn, server_hostname=domain)
+        return ssock, ssock.getpeercert(), False
+    except ssl.SSLCertVerificationError:
+        ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx2.check_hostname = False
+        ctx2.verify_mode = ssl.CERT_NONE
+        conn = socket.create_connection((domain, port), timeout=10)
+        ssock = ctx2.wrap_socket(conn, server_hostname=domain)
+        return ssock, {}, True  # empty dict — getpeercert() is empty with CERT_NONE
+
 def ssl_tls_analysis(domain: str):
     """Deep SSL/TLS analysis with cipher grading"""
     WEAK_CIPHERS = ['RC4', 'DES', 'NULL', 'EXPORT', 'MD5', 'anon']
     GOOD_PROTOCOLS = ['TLSv1.2', 'TLSv1.3']
-    
+
     result = {
         "grade": "F", "score": 0, "issues": [], "certificate": {},
         "protocol": None, "cipher_suite": None, "key_exchange": None
     }
-    
+
     try:
-        context = ssl.create_default_context()
-        with socket.create_connection((domain, 443), timeout=10) as sock:
-            with context.wrap_socket(sock, server_hostname=domain) as ssock:
-                result["protocol"] = ssock.version()
-                result["cipher_suite"] = ssock.cipher()[0]
-                
-                cert = ssock.getpeercert()
-                result["certificate"] = {
-                    "subject": dict(x[0] for x in cert.get('subject', [])),
-                    "issuer": dict(x[0] for x in cert.get('issuer', [])),
-                    "not_before": cert.get('notBefore'),
-                    "not_after": cert.get('notAfter'),
-                    "san": [x[1] for x in cert.get('subjectAltName', [])],
-                }
-                
-                # Score calculation
-                score = 0
-                if result["protocol"] in GOOD_PROTOCOLS:
-                    score += 40
-                elif result["protocol"] == "TLSv1.1":
-                    score += 20
-                    result["issues"].append("TLS 1.1 deprecated - upgrade to 1.2+")
-                elif result["protocol"] == "TLSv1":
-                    result["issues"].append("TLS 1.0 deprecated - security risk")
-                
-                # Cipher check
-                cipher = result["cipher_suite"]
-                if any(weak in cipher for weak in WEAK_CIPHERS):
-                    result["issues"].append(f"Weak cipher: {cipher}")
-                else:
-                    score += 30
-                
-                # Certificate validity
-                from datetime import datetime
-                try:
-                    not_after = datetime.strptime(cert.get('notAfter', ''), '%b %d %H:%M:%S %Y %Z')
-                    days_left = (not_after - datetime.utcnow()).days
+        ssock, cert, unverified = _ssl_connect(domain)
+        with ssock:
+            result["protocol"] = ssock.version()
+            result["cipher_suite"] = ssock.cipher()[0]
+            if unverified:
+                result["issues"].append("Certificate chain could not be verified against system CA store")
+
+            result["certificate"] = {
+                "subject": dict(x[0] for x in cert.get('subject', ())) if cert else {},
+                "issuer": dict(x[0] for x in cert.get('issuer', ())) if cert else {},
+                "not_before": cert.get('notBefore', 'N/A'),
+                "not_after": cert.get('notAfter', 'N/A'),
+                "san": [x[1] for x in cert.get('subjectAltName', ())],
+            }
+
+            # Score calculation
+            score = 0
+            if result["protocol"] in GOOD_PROTOCOLS:
+                score += 40
+            elif result["protocol"] == "TLSv1.1":
+                score += 20
+                result["issues"].append("TLS 1.1 deprecated - upgrade to 1.2+")
+            elif result["protocol"] == "TLSv1":
+                result["issues"].append("TLS 1.0 deprecated - security risk")
+
+            cipher = result["cipher_suite"]
+            if any(weak in cipher for weak in WEAK_CIPHERS):
+                result["issues"].append(f"Weak cipher: {cipher}")
+            else:
+                score += 30
+
+            try:
+                not_after_str = cert.get('notAfter', '')
+                if not_after_str and not_after_str != 'N/A':
+                    not_after = datetime.strptime(not_after_str, '%b %d %H:%M:%S %Y %Z')
+                    days_left = (not_after - datetime.now(timezone.utc)).days
                     result["certificate"]["days_until_expiry"] = days_left
                     if days_left < 0:
                         result["issues"].append("Certificate EXPIRED")
@@ -5823,15 +5910,15 @@ def ssl_tls_analysis(domain: str):
                         score += 10
                     else:
                         score += 30
-                except:
-                    pass
-                
-                result["score"] = score
-                if score >= 90: result["grade"] = "A"
-                elif score >= 70: result["grade"] = "B"
-                elif score >= 50: result["grade"] = "C"
-                elif score >= 30: result["grade"] = "D"
-                
+            except Exception:
+                pass
+
+            result["score"] = score
+            if score >= 90: result["grade"] = "A"
+            elif score >= 70: result["grade"] = "B"
+            elif score >= 50: result["grade"] = "C"
+            elif score >= 30: result["grade"] = "D"
+
     except Exception as e:
         result["error"] = str(e)
     
@@ -6052,14 +6139,14 @@ def js_secret_scan(url: str):
 
 # MITRE ATT&CK Mapping for findings
 MITRE_MAPPING = {
-    "missing_security_headers": {"tactic": "Initial Access", "technique": "T1190", "name": "Exploit Public-Facing Application"},
-    "weak_tls": {"tactic": "Collection", "technique": "T1557", "name": "Adversary-in-the-Middle"},
-    "exposed_credentials": {"tactic": "Credential Access", "technique": "T1552", "name": "Unsecured Credentials"},
-    "subdomain_takeover": {"tactic": "Resource Development", "technique": "T1584.001", "name": "Compromise Infrastructure: Domains"},
-    "cors_misconfiguration": {"tactic": "Initial Access", "technique": "T1189", "name": "Drive-by Compromise"},
-    "dangerous_http_methods": {"tactic": "Persistence", "technique": "T1505", "name": "Server Software Component"},
-    "exposed_admin": {"tactic": "Initial Access", "technique": "T1190", "name": "Exploit Public-Facing Application"},
-    "javascript_secrets": {"tactic": "Credential Access", "technique": "T1552.001", "name": "Credentials In Files"},
+    "missing_security_headers": {"tactic": "Initial Access", "id": "T1190", "name": "Exploit Public-Facing Application", "severity": "medium"},
+    "weak_tls": {"tactic": "Collection", "id": "T1557", "name": "Adversary-in-the-Middle", "severity": "high"},
+    "exposed_credentials": {"tactic": "Credential Access", "id": "T1552", "name": "Unsecured Credentials", "severity": "critical"},
+    "subdomain_takeover": {"tactic": "Resource Development", "id": "T1584.001", "name": "Compromise Infrastructure: Domains", "severity": "high"},
+    "cors_misconfiguration": {"tactic": "Initial Access", "id": "T1189", "name": "Drive-by Compromise", "severity": "medium"},
+    "dangerous_http_methods": {"tactic": "Persistence", "id": "T1505", "name": "Server Software Component", "severity": "medium"},
+    "exposed_admin": {"tactic": "Initial Access", "id": "T1190", "name": "Exploit Public-Facing Application", "severity": "high"},
+    "javascript_secrets": {"tactic": "Credential Access", "id": "T1552.001", "name": "Credentials In Files", "severity": "high"},
 }
 
 def apply_mitre_mapping(results: dict):
@@ -6092,7 +6179,35 @@ def apply_mitre_mapping(results: dict):
     if results.get("http_methods", {}).get("dangerous"):
         mitre_findings.append({**MITRE_MAPPING["dangerous_http_methods"], "evidence": f"Dangerous methods: {[d['method'] for d in results['http_methods']['dangerous']]}"})
     
-    return {"findings": mitre_findings, "count": len(mitre_findings)}
+    # Merge MITRE ATT&CK findings from async modules
+    async_mitre_modules = [
+        "threat_intel_correlation", "js_threat_analyzer",
+        "infostealer_log_correlation", "threat_actor_profiling"
+    ]
+    for mod_name in async_mitre_modules:
+        mod_data = results.get(mod_name, {})
+        if isinstance(mod_data, dict):
+            for technique in mod_data.get("mitre_attack", []):
+                if isinstance(technique, dict) and technique.get("technique_id"):
+                    mitre_findings.append({
+                        "id": technique["technique_id"],
+                        "name": technique.get("technique_name", ""),
+                        "tactic": technique.get("tactic", ""),
+                        "severity": "high" if technique.get("confidence", 0) > 70 else "medium",
+                        "evidence": f"From {mod_name} (confidence: {technique.get('confidence', 'N/A')}%)",
+                        "source": mod_name
+                    })
+
+    # Deduplicate by technique ID
+    seen_ids = set()
+    unique_findings = []
+    for f in mitre_findings:
+        fid = f.get("id", "")
+        if fid not in seen_ids:
+            seen_ids.add(fid)
+            unique_findings.append(f)
+
+    return {"findings": unique_findings, "count": len(unique_findings), "techniques": unique_findings}
 
 
 # ================================================================================
@@ -9471,7 +9586,7 @@ def schedule_recurring_scan(url, services, mode, extras, minutes):
     if minutes <= 0:
         return
     db = get_db()
-    next_run = (datetime.utcnow() + timedelta(minutes=minutes)).isoformat()
+    next_run = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
     db.execute(
         """
         INSERT INTO scheduled_scans (url, services, mode, extras, interval_minutes, next_run)
@@ -9488,11 +9603,43 @@ def schedule_recurring_scan(url, services, mode, extras, minutes):
     )
     db.commit()
 
+def _run_scheduled_scan(row_id, url, services_json, mode, extras_json, last_results_json, interval_minutes):
+    """Run a scheduled scan in a background thread — never blocks request handling."""
+    import sqlite3 as _sqlite3
+    db_path = DATABASE
+    try:
+        services = json.loads(services_json)
+        extras = json.loads(extras_json or "{}")
+        old_results = json.loads(last_results_json) if last_results_json else {}
+        results, url_norm = run_scan(
+            url,
+            services,
+            mode,
+            extras.get("subdomains"),
+            extras.get("exposures"),
+            extras.get("workflow"),
+            scheduled_run=True,
+        )
+        next_run = (datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)).isoformat()
+        db = _sqlite3.connect(db_path)
+        db.execute(
+            "UPDATE scheduled_scans SET next_run=?, last_run=?, last_results=? WHERE id=?",
+            (next_run, datetime.now(timezone.utc).isoformat(), json.dumps(results), row_id),
+        )
+        db.commit()
+        db.close()
+        diff = summarize_changes(old_results, results)
+        notify_diff(url_norm, diff)
+    except Exception as e:
+        logger.error(f"Scheduled scan {row_id} failed: {e}")
+    finally:
+        app.config["_processing_schedule"] = False
+
 def process_schedules():
     if app.config.get("_processing_schedule"):
         return
     db = get_db()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     try:
         row = db.execute(
             "SELECT * FROM scheduled_scans WHERE next_run <= ? ORDER BY next_run ASC LIMIT 1",
@@ -9503,36 +9650,24 @@ def process_schedules():
     if not row:
         return
     app.config["_processing_schedule"] = True
-    try:
-        services = json.loads(row["services"])
-        extras = json.loads(row["extras"] or "{}")
-        old_results = json.loads(row["last_results"]) if row["last_results"] else {}
-        results, url_norm = run_scan(
-            row["url"],
-            services,
-            row["mode"],
-            extras.get("subdomains"),
-            extras.get("exposures"),
-            extras.get("workflow"),
-            scheduled_run=True,
-        )
-        next_run = (datetime.utcnow() + timedelta(minutes=row["interval_minutes"])).isoformat()
-        db.execute(
-            "UPDATE scheduled_scans SET next_run=?, last_run=?, last_results=? WHERE id=?",
-            (next_run, datetime.utcnow().isoformat(), json.dumps(results), row["id"]),
-        )
-        db.commit()
-        diff = summarize_changes(old_results, results)
-        notify_diff(url_norm, diff)
-    finally:
-        app.config["_processing_schedule"] = False
+    # Run in background thread so we don't block the current HTTP request
+    TASK_EXECUTOR.submit(
+        _run_scheduled_scan,
+        row["id"], row["url"], row["services"], row["mode"],
+        row["extras"], row["last_results"], row["interval_minutes"],
+    )
 
 @app.before_request
 def _schedule_tick():
     process_schedules()
 
 def compute_anomalies(url, summary):
-    db = get_db()
+    try:
+        db = get_db()
+    except RuntimeError:
+        # No Flask app context (running in background thread)
+        db = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
     rows = db.execute(
         "SELECT results FROM scans WHERE url=? ORDER BY id DESC LIMIT 10",
         (url,),
@@ -9572,7 +9707,7 @@ def maybe_create_ticket(url, summary, results):
             "missing_sec_headers": summary.get("missing_sec_headers"),
             "vt_malicious": summary.get("vt_malicious"),
             "high_exposures": high_exposures[:5],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     }
     try:
@@ -9580,12 +9715,159 @@ def maybe_create_ticket(url, summary, results):
     except requests.RequestException:
         pass
 
-def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, extra_exposure_paths=None, workflow_steps=None, scheduled_run=False):
+def _build_shared_state(results, domain):
+    """Map inline module results to the keys async modules expect in shared_state."""
+    shared = {}
+
+    # dns: async modules expect {"domain": str, "ips": list, "hostname": str, "aliases": list}
+    if "dns_records" in results and isinstance(results["dns_records"], dict) and not results["dns_records"].get("error"):
+        dns_data = results["dns_records"]
+        ips = dns_data.get("A", []) if isinstance(dns_data, dict) else []
+        shared["dns"] = {"domain": domain, "ips": ips, "hostname": domain, "aliases": []}
+    # Also try to resolve directly if dns_records didn't yield A records
+    if "dns" not in shared and domain:
+        try:
+            ip = socket.gethostbyname(domain)
+            shared["dns"] = {"domain": domain, "ips": [ip], "hostname": domain, "aliases": []}
+        except socket.gaierror:
+            pass
+
+    # whois: async modules check shared_state["whois"] for creation_date
+    if "whois_lookup" in results and isinstance(results["whois_lookup"], dict) and not results["whois_lookup"].get("error"):
+        shared["whois"] = results["whois_lookup"]
+
+    # crawler: async modules expect {"js_files": list, "emails": list, "html": str}
+    if "crawler" in results and isinstance(results["crawler"], dict) and not results["crawler"].get("error"):
+        shared["crawler"] = results["crawler"]
+
+    # virustotal: reputation_timeline uses VT data
+    if "virustotal" in results and isinstance(results["virustotal"], dict) and not results["virustotal"].get("error"):
+        shared["virustotal"] = results["virustotal"]
+
+    return shared
+
+
+def _run_async_modules(selected_services, results, domain, url_norm,
+                       module_times, completed_modules, progress_callback):
+    """
+    Run async modules from modules/ package, respecting dependency chains.
+    Executes in a fresh event loop (safe from worker threads).
+    """
+    import aiohttp
+    from modules import load_modules
+
+    all_modules = load_modules()
+    if not all_modules:
+        return
+
+    # Only run async modules that were selected by the user
+    selected_async = {name: mod for name, mod in all_modules.items()
+                      if name in selected_services and name not in results}
+    if not selected_async:
+        return
+
+    shared_state = _build_shared_state(results, domain)
+
+    async def _execute_async():
+        connector = aiohttp.TCPConnector(limit=10, ssl=False)
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            executed = set()
+            remaining = dict(selected_async)
+            max_iterations = len(remaining) + 1  # safety guard
+
+            for _ in range(max_iterations):
+                if not remaining:
+                    break
+
+                ready = []
+                skip = []
+                for name, mod in list(remaining.items()):
+                    # Check API key requirement
+                    if mod.required_api_key_env and not os.environ.get(mod.required_api_key_env):
+                        skip.append((name, f"Missing API key: {mod.required_api_key_env}"))
+                        continue
+                    # Check dependency satisfaction
+                    deps_met = all(
+                        d in executed or d in shared_state
+                        for d in mod.dependencies
+                    )
+                    if deps_met:
+                        ready.append((name, mod))
+
+                # Process skips
+                for name, reason in skip:
+                    remaining.pop(name, None)
+                    executed.add(name)
+                    results[name] = {"status": "skipped", "reason": reason}
+                    module_times[name] = 0
+                    completed_modules.append(name)
+                    if progress_callback:
+                        try: progress_callback(completed_modules)
+                        except Exception: pass
+
+                if not ready:
+                    # Remaining modules have unresolvable deps — skip them
+                    for name in list(remaining):
+                        unmet = [d for d in remaining[name].dependencies
+                                 if d not in executed and d not in shared_state]
+                        results[name] = {"status": "skipped",
+                                         "reason": f"Unmet dependencies: {', '.join(unmet)}"}
+                        module_times[name] = 0
+                        completed_modules.append(name)
+                        if progress_callback:
+                            try: progress_callback(completed_modules)
+                            except Exception: pass
+                    break
+
+                # Remove ready from remaining before execution
+                for name, _ in ready:
+                    remaining.pop(name, None)
+
+                # Execute ready modules concurrently with asyncio.gather
+                coros = [mod.execute(url_norm, session, shared_state)
+                         for _, mod in ready]
+                gather_results = await asyncio.gather(*coros, return_exceptions=True)
+
+                for (name, mod), mod_result in zip(ready, gather_results):
+                    if isinstance(mod_result, Exception):
+                        results[name] = {"error": str(mod_result)}
+                        module_times[name] = 0
+                        logger.warning(f"Async module {name} exception: {mod_result}")
+                    elif mod_result and mod_result.status == "success":
+                        results[name] = mod_result.data
+                        shared_state[name] = mod_result.data
+                        module_times[name] = mod_result.execution_time
+                    elif mod_result and mod_result.status == "error":
+                        results[name] = {"error": mod_result.error or "Unknown error"}
+                        module_times[name] = mod_result.execution_time
+                    elif mod_result:
+                        results[name] = {"status": "skipped"}
+                        module_times[name] = mod_result.execution_time
+                    else:
+                        results[name] = {"status": "skipped"}
+                        module_times[name] = 0
+
+                    executed.add(name)
+                    completed_modules.append(name)
+                    if progress_callback:
+                        try: progress_callback(completed_modules)
+                        except Exception: pass
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_execute_async())
+    finally:
+        loop.close()
+
+
+def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, extra_exposure_paths=None, workflow_steps=None, scheduled_run=False, progress_callback=None):
     url_norm = url_normalize(url_to_scan)
     parsed_url = urlparse(url_norm)
     domain = parsed_url.hostname or get_domain(url_norm)
     results = {}
     module_times = {}
+    completed_modules = []
     t0 = time.perf_counter()
 
     workflow_steps = workflow_steps or []
@@ -9595,9 +9877,18 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
         start = time.perf_counter()
         try:
             out = func(*args, **kwargs)
+        except Exception as e:
+            logger.warning(f"Module {name} error: {e}")
+            out = {"error": str(e)}
         finally:
             module_times[name] = round(time.perf_counter() - start, 3)
         results[name] = out
+        completed_modules.append(name)
+        if progress_callback:
+            try:
+                progress_callback(completed_modules)
+            except Exception:
+                pass
 
     # Base response for fingerprinting
     base_resp = http_get(url_norm)
@@ -9662,7 +9953,7 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
     should_run_exposure = ("exposure_checks" in selected_services) or mode == "semi"
     if should_run_exposure:
         run_mod("exposure_checks", True, exposure_checks, url_norm, extra_exposure_paths or [])
-    if mode == "semi":
+    if mode == "semi" and "js_secrets" not in results:
         run_mod("js_secrets", True, js_secrets_from_page, url_norm)
 
     current_scheme = parsed_url.scheme or "http"
@@ -9939,6 +10230,17 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
         except Exception as e:
             logger.warning(f"Enhanced modules failed: {e}")
 
+    # ============ ASYNC MODULE EXECUTION (modules/ package) ============
+    # Run the well-structured async modules that have dependency chains,
+    # shared_state, and MITRE ATT&CK mapping built in.
+    try:
+        _run_async_modules(
+            selected_services, results, domain, url_norm,
+            module_times, completed_modules, progress_callback
+        )
+    except Exception as e:
+        logger.warning(f"Async module phase failed: {e}")
+
     summary = build_summary(results)
     try:
         summary["anomalies"] = compute_anomalies(url_norm, summary)
@@ -9988,14 +10290,15 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
     # Scan Diff Analyzer - compares with previous scan
     if "scan_diff" in selected_services:
         try:
-            # Get previous scan from database
-            with app.app_context():
-                db = get_db()
-                prev_row = db.execute(
-                    "SELECT results FROM scans WHERE url LIKE ? ORDER BY id DESC LIMIT 1",
-                    (f"%{domain}%",)
-                ).fetchone()
-                previous = json.loads(prev_row["results"]) if prev_row else None
+            # Direct DB access — safe from worker threads (no Flask g context)
+            _db = sqlite3.connect(DATABASE)
+            _db.row_factory = sqlite3.Row
+            prev_row = _db.execute(
+                "SELECT results FROM scans WHERE url LIKE ? ORDER BY id DESC LIMIT 1",
+                (f"%{domain}%",)
+            ).fetchone()
+            previous = json.loads(prev_row["results"]) if prev_row else None
+            _db.close()
             results["scan_diff"] = scan_diff_analyzer.analyze(results, previous)
         except Exception as e:
             results["scan_diff"] = {"error": str(e), "has_previous": False}
@@ -10010,9 +10313,10 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
     # Delta Alerts - check for significant changes
     if "delta_alerts" in selected_services:
         try:
-            with app.app_context():
-                db = get_db()
-                results["delta_alerts"] = delta_alert_manager.check_for_changes(results, db)
+            _db = sqlite3.connect(DATABASE)
+            _db.row_factory = sqlite3.Row
+            results["delta_alerts"] = delta_alert_manager.check_for_changes(results, _db)
+            _db.close()
         except Exception as e:
             results["delta_alerts"] = {"error": str(e), "alerts": []}
     
@@ -10023,7 +10327,329 @@ def run_scan(url_to_scan, selected_services, mode, extra_subdomain_words=None, e
 # ---------------- Routes ----------------
 @app.route("/", methods=["GET"])
 def index():
+    """Dashboard — the command center."""
+    db = get_db()
+    # Gather dashboard stats
+    try:
+        total_scans = db.execute("SELECT COUNT(*) as c FROM scans").fetchone()["c"]
+    except Exception:
+        total_scans = 0
+
+    try:
+        rows = db.execute("SELECT id, url, results, scan_date FROM scans ORDER BY id DESC LIMIT 10").fetchall()
+        recent_scans = []
+        risk_scores = []
+        for row in rows:
+            scan_entry = {"id": row["id"], "url": row["url"], "scan_date": row["scan_date"], "risk_score": 0}
+            try:
+                r = json.loads(row["results"])
+                scan_entry["risk_score"] = r.get("_summary", {}).get("risk_score", 0)
+                risk_scores.append(scan_entry["risk_score"])
+            except Exception:
+                pass
+            recent_scans.append(scan_entry)
+    except Exception:
+        recent_scans = []
+        risk_scores = []
+
+    # Unique targets
+    try:
+        unique_targets = db.execute("SELECT COUNT(DISTINCT url) as c FROM scans").fetchone()["c"]
+    except Exception:
+        unique_targets = 0
+
+    # Week scans (rough estimate)
+    week_scans = min(total_scans, len(recent_scans))
+
+    # Risk distribution
+    risk_critical = sum(1 for s in risk_scores if s > 70)
+    risk_high = sum(1 for s in risk_scores if 40 < s <= 70)
+    risk_medium = sum(1 for s in risk_scores if 20 < s <= 40)
+    risk_low = sum(1 for s in risk_scores if s <= 20)
+    avg_risk = round(sum(risk_scores) / len(risk_scores)) if risk_scores else 0
+
+    # API key count
+    api_keys_configured = sum(1 for k in [
+        VT_API_KEY, SHODAN_API_KEY, ABUSEIPDB_API_KEY, GREYNOISE_API_KEY,
+        SECURITYTRAILS_API_KEY, HIBP_API_KEY, GITHUB_TOKEN,
+        OTX_API_KEY, CENSYS_API_ID, HUNTER_API_KEY
+    ] if k)
+
+    return render_template('dashboard.html',
+        total_scans=total_scans,
+        week_scans=week_scans,
+        unique_targets=unique_targets,
+        avg_risk=avg_risk,
+        recent_scans=recent_scans,
+        risk_critical=risk_critical,
+        risk_high=risk_high,
+        risk_medium=risk_medium,
+        risk_low=risk_low,
+        api_keys_configured=api_keys_configured,
+        ai_enabled=AI_ENABLED,
+    )
+
+
+@app.route("/scan/new", methods=["GET"])
+def scan_new():
+    """New Scan configuration page."""
     return render_template('index.html')
+
+
+@app.route("/scans")
+def scans_list():
+    """Scan history — alias for /history."""
+    db = get_db()
+    rows = db.execute("SELECT id, url, scan_date FROM scans ORDER BY id DESC LIMIT 100").fetchall()
+    return render_template('history.html', items=rows)
+
+
+@app.route("/settings")
+def settings_page():
+    """Settings & API key management."""
+    config_data = {
+        'VT_API_KEY': VT_API_KEY or '',
+        'SHODAN_API_KEY': SHODAN_API_KEY or '',
+        'ABUSEIPDB_API_KEY': ABUSEIPDB_API_KEY or '',
+        'GREYNOISE_API_KEY': GREYNOISE_API_KEY or '',
+        'SECURITYTRAILS_API_KEY': SECURITYTRAILS_API_KEY or '',
+        'CENSYS_API_ID': CENSYS_API_ID or '',
+        'HIBP_API_KEY': HIBP_API_KEY or '',
+        'GITHUB_TOKEN': GITHUB_TOKEN or '',
+        'HUNTER_API_KEY': HUNTER_API_KEY or '',
+        'OTX_API_KEY': OTX_API_KEY or '',
+        'OPENAI_API_KEY': OPENAI_API_KEY or '',
+        'ANTHROPIC_API_KEY': ANTHROPIC_API_KEY or '',
+        'FOFA_API_KEY': FOFA_API_KEY or '',
+        'LEAKCHECK_API_KEY': LEAKCHECK_API_KEY or '',
+        'DISCORD_WEBHOOK_URL': os.environ.get('DISCORD_WEBHOOK_URL', ''),
+        'SLACK_WEBHOOK_URL': os.environ.get('SLACK_WEBHOOK_URL', ''),
+        'TEAMS_WEBHOOK_URL': os.environ.get('TEAMS_WEBHOOK_URL', ''),
+        'TELEGRAM_BOT_TOKEN': os.environ.get('TELEGRAM_BOT_TOKEN', ''),
+        'TELEGRAM_CHAT_ID': os.environ.get('TELEGRAM_CHAT_ID', ''),
+        'SPLUNK_HEC_URL': os.environ.get('SPLUNK_HEC_URL', ''),
+        'SPLUNK_HEC_TOKEN': os.environ.get('SPLUNK_HEC_TOKEN', ''),
+        'ELASTICSEARCH_URL': os.environ.get('ELASTICSEARCH_URL', ''),
+        'ELASTICSEARCH_API_KEY': os.environ.get('ELASTICSEARCH_API_KEY', ''),
+        'SIEM_AUTO_PUSH': os.environ.get('SIEM_AUTO_PUSH', ''),
+    }
+    # Count loaded modules dynamically
+    try:
+        from modules import load_modules
+        mod_count = len(load_modules())
+    except Exception:
+        mod_count = 0
+    total_modules = 70 + mod_count  # built-in + plugin modules
+    return render_template('settings.html',
+        config=config_data,
+        version=AEGIS_VERSION,
+        ai_enabled=AI_ENABLED,
+        module_count=f'{total_modules}+',
+        ml_available=ML_AVAILABLE,
+        pdf_available=(WeasyHTML is not None),
+    )
+
+
+@app.route("/settings/export")
+def settings_export():
+    """Export .env file."""
+    from flask import send_file
+    env_path = os.path.join(HERE, ".env")
+    if not os.path.exists(env_path):
+        return "No .env file found", 404
+    return send_file(env_path, as_attachment=True, download_name="aegis_settings.env")
+
+@app.route("/settings/import", methods=["POST"])
+def settings_import():
+    """Import .env file."""
+    if "file" not in request.files:
+        return jsonify({"success": False, "error": "No file uploaded"})
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"success": False, "error": "No selected file"})
+
+    # Validate: only allow KEY=VALUE lines (no shell commands, no path traversal)
+    content = file.read().decode("utf-8", errors="ignore")
+    validated_lines = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            validated_lines.append(line)
+            continue
+        if "=" in stripped and re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', stripped):
+            validated_lines.append(line)
+        else:
+            return jsonify({"success": False, "error": f"Invalid line in env file: {stripped[:80]}"})
+
+    env_path = os.path.join(HERE, ".env")
+    with open(env_path, "w") as f:
+        f.write("\n".join(validated_lines) + "\n")
+    return jsonify({"success": True})
+
+ALLOWED_SETTINGS_KEYS = {
+    "VT_API_KEY", "SHODAN_API_KEY", "ABUSEIPDB_API_KEY", "GREYNOISE_API_KEY",
+    "SECURITYTRAILS_API_KEY", "CENSYS_API_ID", "CENSYS_API_SECRET", "HIBP_API_KEY",
+    "GITHUB_TOKEN", "HUNTER_API_KEY", "OTX_API_KEY", "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY", "FOFA_API_KEY", "FOFA_EMAIL", "LEAKCHECK_API_KEY",
+    "DISCORD_WEBHOOK_URL", "SLACK_WEBHOOK_URL", "TEAMS_WEBHOOK_URL",
+    "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "DEHASHED_API_KEY", "DEHASHED_EMAIL",
+    "FULLHUNT_API_KEY", "ZOOMEYE_API_KEY", "BINARYEDGE_API_KEY", "INTELX_API_KEY",
+    "BUILTWITH_API_KEY", "WHOISXML_API_KEY", "URLSCAN_API_KEY", "FLASK_DEBUG",
+    "AI_ENABLED", "AI_MODEL", "FLASK_HOST", "FLASK_SECRET_KEY",
+}
+
+@app.route("/settings/save", methods=["POST"])
+def settings_save():
+    """Save API keys to .env file."""
+    payload = request.json
+    if not payload:
+        return jsonify({"success": False})
+
+    # Only allow known settings keys
+    for key in payload:
+        if key not in ALLOWED_SETTINGS_KEYS:
+            return jsonify({"success": False, "error": f"Unknown setting: {key}"})
+
+    env_path = os.path.join(HERE, ".env")
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            lines = f.readlines()
+            
+    for key, value in payload.items():
+        updated = False
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}="):
+                lines[i] = f"{key}={value}\n"
+                updated = True
+                break
+        if not updated:
+            lines.append(f"{key}={value}\n")
+            
+    with open(env_path, "w") as f:
+        f.writelines(lines)
+
+    # Reload env vars into os.environ and update module-level API key variables
+    for key, value in payload.items():
+        os.environ[key] = value
+
+    # Update the module-level globals so they take effect immediately
+    global VT_API_KEY, SHODAN_API_KEY, ABUSEIPDB_API_KEY, GREYNOISE_API_KEY
+    global SECURITYTRAILS_API_KEY, HIBP_API_KEY, GITHUB_TOKEN, OTX_API_KEY
+    global HUNTER_API_KEY, CENSYS_API_ID, CENSYS_API_SECRET, LEAKCHECK_API_KEY
+    global FOFA_API_KEY, DEHASHED_API_KEY, DEHASHED_EMAIL, FULLHUNT_API_KEY
+    global BINARYEDGE_API_KEY, INTELX_API_KEY, BUILTWITH_API_KEY
+    global OPENAI_API_KEY, ANTHROPIC_API_KEY, AI_ENABLED
+    global DISCORD_WEBHOOK_URL, SLACK_WEBHOOK_URL, TEAMS_WEBHOOK_URL
+    global TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+
+    VT_API_KEY = os.environ.get("VT_API_KEY", "")
+    SHODAN_API_KEY = os.environ.get("SHODAN_API_KEY", "")
+    ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
+    GREYNOISE_API_KEY = os.environ.get("GREYNOISE_API_KEY", "")
+    SECURITYTRAILS_API_KEY = os.environ.get("SECURITYTRAILS_API_KEY", "")
+    HIBP_API_KEY = os.environ.get("HIBP_API_KEY", "")
+    GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    OTX_API_KEY = os.environ.get("OTX_API_KEY", "")
+    HUNTER_API_KEY = os.environ.get("HUNTER_API_KEY", "")
+    CENSYS_API_ID = os.environ.get("CENSYS_API_ID", "")
+    CENSYS_API_SECRET = os.environ.get("CENSYS_API_SECRET", "")
+    LEAKCHECK_API_KEY = os.environ.get("LEAKCHECK_API_KEY", "")
+    FOFA_API_KEY = os.environ.get("FOFA_API_KEY", "")
+    DEHASHED_API_KEY = os.environ.get("DEHASHED_API_KEY", "")
+    DEHASHED_EMAIL = os.environ.get("DEHASHED_EMAIL", "")
+    FULLHUNT_API_KEY = os.environ.get("FULLHUNT_API_KEY", "")
+    BINARYEDGE_API_KEY = os.environ.get("BINARYEDGE_API_KEY", "")
+    INTELX_API_KEY = os.environ.get("INTELX_API_KEY", "")
+    BUILTWITH_API_KEY = os.environ.get("BUILTWITH_API_KEY", "")
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+    AI_ENABLED = os.environ.get("AI_ENABLED", "true").lower() == "true"
+    DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+    TEAMS_WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK_URL", "")
+    TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+    return jsonify({"success": True})
+
+
+@app.route("/modules")
+def modules_page():
+    """Module registry browser."""
+    # Build module list from the inline module names and their categories
+    module_list = [
+        {"name": "crawler", "description": "Crawl pages, extract links and resources", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "tech", "description": "Detect frameworks, CMS, and technology stack", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "headers", "description": "Analyze HTTP response headers", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "dns", "description": "A, AAAA, MX, NS, TXT record lookup", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "whois", "description": "Domain registration and ownership data", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "subdomain_scan", "description": "Enumerate subdomains via multiple sources", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "ssl_tls", "description": "Certificate and cipher suite analysis", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "cert_transparency", "description": "Certificate transparency log search", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "passive_dns", "description": "Historical DNS record lookup", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "virustotal", "description": "Multi-AV engine reputation scanning", "category": "threat_intel", "api_key": True, "dependencies": []},
+        {"name": "shodan", "description": "Internet device search and enumeration", "category": "threat_intel", "api_key": True, "dependencies": []},
+        {"name": "abuseipdb", "description": "IP address reputation database", "category": "threat_intel", "api_key": True, "dependencies": []},
+        {"name": "greynoise", "description": "Internet background noise filtering", "category": "threat_intel", "api_key": True, "dependencies": []},
+        {"name": "cve_alerts", "description": "CVE correlation with EPSS and KEV", "category": "threat_intel", "api_key": False, "dependencies": ["tech"]},
+        {"name": "ransomware_check", "description": "Ransomware group victim monitoring", "category": "threat_intel", "api_key": False, "dependencies": []},
+        {"name": "sec_headers", "description": "Security header analysis (CSP, HSTS, etc.)", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "owasp_top10", "description": "OWASP Top 10 risk assessment", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "fuzzer", "description": "Endpoint discovery and fuzzing", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "exposure_checks", "description": "Sensitive path and file detection", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "cors", "description": "CORS misconfiguration testing", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "xxe_detect", "description": "XML external entity injection testing", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "ssrf_detect", "description": "Server-side request forgery detection", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "open_redirect", "description": "Open redirect vulnerability scanning", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "social_intel", "description": "Social media profile discovery", "category": "socmint", "api_key": False, "dependencies": []},
+        {"name": "social_extract", "description": "Extract social links from HTML", "category": "socmint", "api_key": False, "dependencies": []},
+        {"name": "github_dorks", "description": "GitHub code search for secrets", "category": "socmint", "api_key": True, "dependencies": []},
+        {"name": "hunter_io", "description": "Email address enumeration", "category": "socmint", "api_key": True, "dependencies": []},
+        {"name": "smart_summary", "description": "AI-powered executive summary", "category": "ai", "api_key": False, "dependencies": []},
+        {"name": "security_posture", "description": "Security posture scoring", "category": "ai", "api_key": False, "dependencies": []},
+        {"name": "attack_vectors", "description": "Attack path analysis", "category": "ai", "api_key": False, "dependencies": []},
+        {"name": "report_narrative", "description": "AI narrative report generation", "category": "ai", "api_key": False, "dependencies": []},
+        {"name": "scan_diff", "description": "Compare with previous scan results", "category": "ai", "api_key": False, "dependencies": []},
+        {"name": "entropy_scan", "description": "High-entropy secret detection", "category": "ai", "api_key": False, "dependencies": []},
+        # v8.0 Expert OSINT Modules
+        {"name": "reverse_ip", "description": "Reverse IP lookup — find all domains on same server", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "dns_zone_transfer", "description": "DNS zone transfer (AXFR) test", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "favicon_pivot", "description": "Favicon hash → Shodan pivot for related infrastructure", "category": "threat_intel", "api_key": True, "dependencies": []},
+        {"name": "spf_analyzer", "description": "SPF record flattening & email spoofing risk analysis", "category": "dns", "api_key": False, "dependencies": []},
+        {"name": "cloud_buckets", "description": "S3/Azure/GCP cloud storage bucket enumeration", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "subdomain_permutation", "description": "Smart subdomain mutation engine (altdns-style)", "category": "dns", "api_key": False, "dependencies": ["subdomain_scan"]},
+        {"name": "google_dorking", "description": "Automated Google dorking for exposed files & credentials", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "http_probe", "description": "Enhanced HTTP security probe with content validation", "category": "security", "api_key": False, "dependencies": []},
+        {"name": "jarm_fingerprint", "description": "JARM TLS fingerprinting for infrastructure correlation", "category": "threat_intel", "api_key": False, "dependencies": []},
+        {"name": "wayback_diff", "description": "Wayback Machine diff — detect JS injection & defacement", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "infra_pivot", "description": "Infrastructure pivot graph via SSL/DNS/ASN correlation", "category": "discovery", "api_key": False, "dependencies": []},
+        {"name": "ssl_chain", "description": "SSL certificate chain deep analysis & CA trust scoring", "category": "security", "api_key": False, "dependencies": []},
+    ]
+
+    # Also load dynamic modules from modules/ package
+    try:
+        from modules import load_modules
+        dynamic_mods = load_modules()
+        for name, mod in dynamic_mods.items():
+            if not any(m["name"] == name for m in module_list):
+                module_list.append({
+                    "name": name,
+                    "description": getattr(mod, 'description', ''),
+                    "category": getattr(mod, 'category', 'uncategorized'),
+                    "api_key": bool(getattr(mod, 'required_api_key_env', None)),
+                    "dependencies": getattr(mod, 'dependencies', []),
+                })
+    except Exception:
+        pass
+
+    # Build category counts
+    categories = {}
+    for m in module_list:
+        cat = m["category"]
+        categories[cat] = categories.get(cat, 0) + 1
+
+    return render_template('modules.html', modules=module_list, categories=categories)
 
 @app.route("/scan", methods=["POST"])
 def scan():
@@ -10049,29 +10675,40 @@ def scan():
         schedule_minutes = 0
 
     scan_options = {
+        "mode": mode,
         "extra_subdomains": extra_subdomains,
         "extra_exposures": extra_exposures,
         "workflow_steps": workflow_steps
     }
+    # Local Task Execution
+    task_id = f"{uuid.uuid4().hex[:12]}"
     
-    # Dispatch task to celery
-    if "dns" not in selected: # Temporary placeholder to inject test plugin
-        selected.append("dns")
-    
-    # Import directly inside the route to avoid global state pollution from Flask
-    from core.celery_app import celery_app as app_celery
-    
-    logger.info(f"CELERY CONFIG IN SCAN: broker={app_celery.conf.broker_url}, type={type(app_celery)}")
-    
-    task = app_celery.send_task(
-        "core.scanner.run_scan_task",
-        args=[url_to_scan, selected, scan_options]
+    db = get_db()
+    db.execute(
+        'INSERT INTO tasks (id, url, state, scan_date) VALUES (?, ?, ?, ?)',
+        (task_id, url_to_scan, 'PENDING', datetime.now().isoformat())
+    )
+    db.commit()
+
+    TASK_EXECUTOR.submit(
+        run_scan_task,
+        task_id, url_to_scan, selected, scan_options
     )
     
+    # Handle optional recurring schedule (works for both HTMX and plain requests)
+    if schedule_minutes > 0:
+        schedule_recurring_scan(
+            url_to_scan,
+            selected,
+            mode,
+            {"subdomains": extra_subdomains, "exposures": extra_exposures, "workflow": workflow_steps},
+            schedule_minutes,
+        )
+
     # If HTMX request, return partial loading UI that establishes SSE
     if "HX-Request" in request.headers:
         return f"""
-        <div id="results-container" class="glass-card p-6 mb-8 text-center" hx-ext="sse" sse-connect="/stream/{task.id}">
+        <div id="scan-results-container" class="glass-card p-6 mb-8 text-center" hx-ext="sse" sse-connect="/stream/{task_id}">
             <h3 class="text-xl font-bold text-blue-400 mb-4 animate-pulse"><i class="fas fa-spinner fa-spin"></i> Scan In Progress...</h3>
             <div id="live-results" sse-swap="message" class="text-left space-y-4">
                 <!-- Live results injected here -->
@@ -10079,83 +10716,106 @@ def scan():
             <div sse-swap="completed"></div>
         </div>
         """
-        
-    results, url_norm = {}, url_to_scan # Fallback for non-htmx if needed
 
-    if schedule_minutes > 0:
-        schedule_recurring_scan(
-            url_norm,
-            selected,
-            mode,
-            {"subdomains": extra_subdomains, "exposures": extra_exposures, "workflow": workflow_steps},
-            schedule_minutes,
-        )
-
-    # Persist & capture ID
-    db = get_db()
-    cur = db.execute(
-        'INSERT INTO scans (url, results, scan_date) VALUES (?, ?, ?)',
-        (url_norm, json.dumps(results), datetime.now().isoformat())
-    )
-    db.commit()
-    scan_id = cur.lastrowid
-
-    # Cache latest for exports
-    app.config["LATEST_RESULTS"] = results
-    app.config["LATEST_URL"] = url_norm
-    app.config["LATEST_SCAN_ID"] = scan_id
-
-    return render_template(
-        'results.html',
-        results=results,
-        url=url_norm,
-        view_mode=view_mode,
-        mode=mode,
-        pdf_available=(WeasyHTML is not None),
-        scan_id=scan_id
-    )
+    # Non-HTMX fallback: redirect to queue so user can track progress.
+    # Do NOT insert a duplicate empty scan here — run_scan_task inserts the
+    # real results when the scan finishes.
+    from flask import redirect, url_for
+    return redirect(url_for('scan_queue'))
 
 @app.route("/stream/<task_id>")
 def stream_results(task_id):
+    from markupsafe import escape as html_escape
     def event_stream():
+        import sqlite3
         import time
         while True:
-            res = AsyncResult(task_id, app=celery_app)
-            if res.state == 'PENDING':
-                yield f"data: <div class='text-gray-400'>Task {task_id} is pending...</div>\n\n"
-            elif res.state == 'PROGRESS':
-                info = res.info
-                completed_modules = info.get('completed', [])
-                
+            db = sqlite3.connect(DATABASE)
+            db.row_factory = sqlite3.Row
+            row = db.execute("SELECT state, completed_modules, results, error FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            db.close()
+            if not row:
+                yield f"event: completed\ndata: <div class='text-red-400'>Task not found.</div>\n\n"
+                break
+
+            state = row['state']
+            safe_task_id = html_escape(task_id)
+            if state == 'PENDING':
+                yield f"data: <div class='text-gray-400'><i class='fas fa-circle-notch fa-spin text-blue-400'></i> Task {safe_task_id} is pending...</div>\n\n"
+            elif state == 'PROGRESS':
+                try:
+                    completed_modules = json.loads(row['completed_modules']) if row['completed_modules'] else []
+                except Exception:
+                    completed_modules = []
+
                 html = "<div class='grid grid-cols-2 md:grid-cols-4 gap-4'>"
                 for mod in completed_modules:
-                    html += f"<div class='bg-green-500/20 border border-green-500 rounded p-3 text-green-400'><i class='fas fa-check-circle'></i> {mod}</div>"
+                    safe_mod = html_escape(str(mod))
+                    html += f"<div class='glass-card-sm border border-green-500/30 bg-green-500/10 rounded-xl p-3 text-green-400 font-medium flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.1)]'><i class='fas fa-check-circle'></i> {safe_mod}</div>"
                 html += "</div>"
-                
+
                 yield f"data: {html}\n\n"
-            elif res.state == 'SUCCESS':
-                results = json.loads(res.result)
+            elif state == 'SUCCESS':
+                results = {}
+                try:
+                    results = json.loads(row['results']) if row['results'] else {}
+                except Exception:
+                    pass
                 scan_id = results.get('_meta', {}).get('scan_id', '#')
-                yield f"event: completed\ndata: <div class='text-green-400 font-bold mt-4'><i class='fas fa-check'></i> Scan Complete! <a href='/view/{scan_id}' class='text-blue-400 underline'>View Full Results</a></div>\n\n"
+                safe_scan_id = html_escape(str(scan_id))
+                yield f"event: completed\ndata: <div class='p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-400 font-bold mt-4 flex items-center justify-between'><div class='flex items-center gap-3'><i class='fas fa-check-circle text-xl'></i> <span>Scan Complete!</span></div> <a href='/view/{safe_scan_id}' class='btn-primary px-4 py-2 rounded-lg text-white shadow-lg shadow-blue-500/30 hover:-translate-y-0.5 transition-all'>View Full Results</a></div>\n\n"
                 break
-            elif res.state == 'FAILURE':
-                yield f"event: completed\ndata: <div class='text-red-400'>Task failed: {str(res.info)}</div>\n\n"
+            elif state == 'FAILURE':
+                error_msg = html_escape(row['error'] or "Unknown error")
+                yield f"event: completed\ndata: <div class='text-red-400 border border-red-500/30 bg-red-500/10 p-4 rounded-xl'><i class='fas fa-exclamation-circle'></i> Task failed: {error_msg}</div>\n\n"
                 break
             time.sleep(1)
             
     return Response(event_stream(), mimetype="text/event-stream")
 
+@app.route("/api/v1/tasks/active")
+def api_active_tasks():
+    """Lightweight endpoint polled by the global scan status bar."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, url, state, completed_modules, error FROM tasks "
+        "WHERE state IN ('PENDING','PROGRESS') "
+        "ORDER BY scan_date DESC LIMIT 10"
+    ).fetchall()
+    # Also grab recently finished tasks (last 60s) so the bar can show completion
+    recent = db.execute(
+        "SELECT id, url, state, results, error FROM tasks "
+        "WHERE state IN ('SUCCESS','FAILURE') "
+        "ORDER BY scan_date DESC LIMIT 3"
+    ).fetchall()
+    tasks = []
+    for r in rows:
+        mods = []
+        try:
+            mods = json.loads(r["completed_modules"]) if r["completed_modules"] else []
+        except Exception:
+            pass
+        tasks.append({
+            "id": r["id"], "url": r["url"], "state": r["state"],
+            "completed_modules": mods,
+        })
+    finished = []
+    for r in recent:
+        scan_id = None
+        try:
+            res = json.loads(r["results"]) if r["results"] else {}
+            scan_id = res.get("_meta", {}).get("scan_id")
+        except Exception:
+            pass
+        finished.append({
+            "id": r["id"], "url": r["url"], "state": r["state"],
+            "scan_id": scan_id, "error": r["error"],
+        })
+    return jsonify({"active": tasks, "recent": finished})
+
 @app.route("/healthz")
 def health_check():
-    health = {"status": "ok", "app": "AEGIS", "version": "6.0"}
-    try:
-        from core.celery_app import celery_app
-        i = celery_app.control.inspect()
-        active = i.active()
-        health["celery"] = "up" if active is not None else "down"
-    except Exception as e:
-        health["celery"] = f"error: {str(e)}"
-        
+    health = {"status": "ok", "app": "AEGIS", "version": AEGIS_VERSION}
     try:
         db = get_db()
         db.execute("SELECT 1").fetchone()
@@ -10163,7 +10823,7 @@ def health_check():
     except Exception as e:
         health["database"] = f"error: {str(e)}"
         
-    status_code = 200 if health["celery"] == "up" and health["database"] == "up" else 503
+    status_code = 200 if health.get("database") == "up" else 503
     return Response(json.dumps(health), status=status_code, mimetype='application/json')
 
 @app.route("/history")
@@ -10171,6 +10831,43 @@ def history():
     db = get_db()
     rows = db.execute("SELECT id, url, scan_date FROM scans ORDER BY id DESC LIMIT 100").fetchall()
     return render_template('history.html', items=rows)
+
+@app.route("/queue")
+def scan_queue():
+    db = get_db()
+    rows = db.execute("SELECT id, url, state, completed_modules FROM tasks WHERE state IN ('PENDING', 'PROGRESS') ORDER BY scan_date DESC").fetchall()
+
+    active = []
+    reserved = []
+    for r in rows:
+        mods = []
+        try:
+            mods = json.loads(r["completed_modules"]) if r["completed_modules"] else []
+        except Exception:
+            pass
+        item = {"id": r["id"], "args": [r["url"]], "completed_modules": mods}
+        if r["state"] == 'PROGRESS':
+            active.append(item)
+        else:
+            reserved.append(item)
+
+    # Recently finished tasks
+    done_rows = db.execute(
+        "SELECT id, url, state, results, error, scan_date FROM tasks "
+        "WHERE state IN ('SUCCESS','FAILURE') ORDER BY scan_date DESC LIMIT 10"
+    ).fetchall()
+    done = []
+    for r in done_rows:
+        scan_id = None
+        try:
+            res = json.loads(r["results"]) if r["results"] else {}
+            scan_id = res.get("_meta", {}).get("scan_id")
+        except Exception:
+            pass
+        done.append({"id": r["id"], "args": [r["url"]], "state": r["state"],
+                      "scan_id": scan_id, "error": r["error"], "scan_date": r["scan_date"]})
+
+    return render_template('queue.html', active=active, reserved=reserved, done=done)
 
 @app.route("/scheduled")
 def scheduled():
@@ -10225,6 +10922,86 @@ def graph(scan_id):
     nodes, edges = extract_relationships(results)
     return render_template('graph.html', nodes=nodes, edges=edges, scan_id=scan_id)
 
+
+@app.route("/compare/<int:id_a>/<int:id_b>")
+def compare_scans(id_a, id_b):
+    """Side-by-side scan comparison."""
+    db = get_db()
+    row_a = db.execute("SELECT id, url, results, scan_date FROM scans WHERE id=?", (id_a,)).fetchone()
+    row_b = db.execute("SELECT id, url, results, scan_date FROM scans WHERE id=?", (id_b,)).fetchone()
+    if not row_a or not row_b:
+        return "One or both scans not found", 404
+
+    results_a = json.loads(row_a["results"])
+    results_b = json.loads(row_b["results"])
+
+    # Build comparison data
+    def scan_data(row, results):
+        non_meta = {k: v for k, v in results.items() if not k.startswith("_")}
+        return {
+            "id": row["id"],
+            "url": row["url"],
+            "scan_date": row["scan_date"],
+            "risk": results.get("_summary", {}).get("risk_score", 0),
+            "module_count": len(non_meta),
+            "finding_count": sum(1 for v in non_meta.values() if v and not (isinstance(v, dict) and v.get("error"))),
+            "results": non_meta,
+        }
+
+    scan_a = scan_data(row_a, results_a)
+    scan_b = scan_data(row_b, results_b)
+
+    all_modules = sorted(set(list(scan_a["results"].keys()) + list(scan_b["results"].keys())))
+
+    diff = {}
+    for mod in all_modules:
+        if mod in scan_a["results"] and mod in scan_b["results"]:
+            if json.dumps(scan_a["results"][mod], sort_keys=True) != json.dumps(scan_b["results"][mod], sort_keys=True):
+                diff[mod] = "changed"
+            else:
+                diff[mod] = "same"
+        elif mod in scan_b["results"]:
+            diff[mod] = "added"
+        else:
+            diff[mod] = "removed"
+
+    return render_template('compare.html',
+        scan_a=scan_a, scan_b=scan_b,
+        all_modules=all_modules, diff=diff
+    )
+
+
+@app.route("/report/<int:scan_id>")
+def report_center(scan_id):
+    """Export/download center for a scan."""
+    db = get_db()
+    row = db.execute("SELECT id, url, results FROM scans WHERE id=?", (scan_id,)).fetchone()
+    if not row:
+        return "Not found", 404
+    # Set LATEST so export routes work
+    results = json.loads(row["results"])
+    app.config["LATEST_RESULTS"] = results
+    app.config["LATEST_URL"] = row["url"]
+    app.config["LATEST_SCAN_ID"] = row["id"]
+    return render_template('report.html',
+        scan_id=scan_id,
+        pdf_available=(WeasyHTML is not None),
+    )
+
+def _get_export_data():
+    """Thread-safe helper: fetch export data from DB by scan_id, falling back to LATEST_RESULTS."""
+    scan_id = request.args.get("scan_id", type=int) or app.config.get("LATEST_SCAN_ID")
+    if scan_id:
+        db = get_db()
+        row = db.execute("SELECT url, results FROM scans WHERE id=?", (scan_id,)).fetchone()
+        if row:
+            return json.loads(row["results"]), row["url"], scan_id
+    # Fallback for backwards compat
+    results = app.config.get("LATEST_RESULTS", {})
+    url = app.config.get("LATEST_URL", "N/A")
+    return results, url, app.config.get("LATEST_SCAN_ID")
+
+
 def flatten_results_for_csv(results):
     rows = []
     for key, value in results.items():
@@ -10244,7 +11021,7 @@ def flatten_results_for_csv(results):
 
 @app.route("/export/csv")
 def export_csv():
-    results = app.config.get("LATEST_RESULTS", {})
+    results, url, scan_id = _get_export_data()
     if not results:
         return "No data to export", 404
 
@@ -10261,7 +11038,7 @@ def export_csv():
 
 @app.route("/export/json")
 def export_json():
-    results = app.config.get("LATEST_RESULTS", {})
+    results, url, scan_id = _get_export_data()
     if not results:
         return "No data to export", 404
     return Response(
@@ -10272,17 +11049,26 @@ def export_json():
 
 @app.route("/export/splunk-cim")
 def export_splunk_cim():
-    results = app.config.get("LATEST_RESULTS", {})
+    results, url, scan_id = _get_export_data()
     if not results: return "No data", 404
-    # Simplistic Splunk Common Information Model mapping
+    timestamp = int(time.time())
+    host = results.get("_meta", {}).get("base_domain", "unknown")
     cim_events = []
     for module, data in results.items():
-        if isinstance(data, dict) and "status" in data:
+        if module.startswith("_"):
+            continue
+        if isinstance(data, dict) and not data.get("error"):
+            severity = "informational"
+            if "threat" in module or "ransomware" in module:
+                severity = "high"
+            elif "vuln" in module or "cve" in module or "owasp" in module:
+                severity = "medium"
             cim_events.append({
+                "time": timestamp,
                 "action": "scan",
                 "app": "aegis",
-                "dest": results.get("domain_risk_scoring", {}).get("domain", "unknown"),
-                "severity": "high" if "threat" in module else "informational",
+                "dest": host,
+                "severity": severity,
                 "signature": f"Aegis Module: {module}",
                 "body": data
             })
@@ -10290,30 +11076,31 @@ def export_splunk_cim():
 
 @app.route("/export/qradar-leef")
 def export_qradar_leef():
-    results = app.config.get("LATEST_RESULTS", {})
+    results, url, scan_id = _get_export_data()
     if not results: return "No data", 404
     leef_lines = []
-    host = results.get("domain_risk_scoring", {}).get("domain", "unknown")
+    host = results.get("_meta", {}).get("base_domain", "unknown")
     for module, data in results.items():
+        if module.startswith("_"):
+            continue
         if isinstance(data, dict):
-            status = data.get("status", "success")
-            leef_lines.append(f"LEEF:1.0|Masriyan|Aegis|v6|{module}|devTimeFormat=MMM dd yyyy HH:mm:ss\tdevTime=current\tsev=5\tdst={host}\tmsg={status}")
+            has_error = "error" if data.get("error") else "success"
+            leef_lines.append(f"LEEF:1.0|Masriyan|Aegis|{AEGIS_VERSION}|{module}|devTimeFormat=MMM dd yyyy HH:mm:ss\tdevTime=current\tsev=5\tdst={host}\tmsg={has_error}")
     return Response("\n".join(leef_lines), mimetype='text/plain', headers={'Content-Disposition':'attachment; filename=aegis-qradar.leef'})
 
 @app.route("/export/elastic-ecs")
 def export_elastic_ecs():
-    results = app.config.get("LATEST_RESULTS", {})
+    results, url, scan_id = _get_export_data()
     if not results: return "No data", 404
-    host = results.get("domain_risk_scoring", {}).get("domain", "unknown")
+    host = results.get("_meta", {}).get("base_domain", "unknown")
     ecs_events = [{
-        "@timestamp": datetime.now().isoformat(),
+        "@timestamp": datetime.now(timezone.utc).isoformat(),
         "event.module": "aegis",
         "event.dataset": "vulnerability_scan",
         "host.domain": host,
         "vulnerability.scanner.vendor": "Masriyan",
         "aegis.results": results
     }]
-    # Returning NDJSON standard for elastic
     ndjson = "\n".join([json.dumps(e) for e in ecs_events])
     return Response(ndjson, mimetype='application/x-ndjson', headers={'Content-Disposition':'attachment; filename=aegis-ecs.ndjson'})
 
@@ -10322,17 +11109,17 @@ def export_elastic_ecs():
 def export_pdf():
     if WeasyHTML is None:
         return "PDF export functionality is not available. Please install weasyprint.", 500
-    results = app.config.get("LATEST_RESULTS", {})
+    results, url_norm, scan_id = _get_export_data()
     if not results:
         return "No data to export", 404
-    url_norm = app.config.get("LATEST_URL", "N/A")
-    rendered_html = render_template_string(
-        RESULTS_HTML,
+    rendered_html = render_template(
+        'results.html',
         results=results,
         url=url_norm,
         view_mode='human',
+        mode='defensive',
         pdf_available=False,
-        scan_id=app.config.get("LATEST_SCAN_ID")
+        scan_id=scan_id
     )
     pdf = WeasyHTML(string=rendered_html).write_pdf()
     response = make_response(pdf)
@@ -10342,7 +11129,7 @@ def export_pdf():
 
 @app.route("/export/docx")
 def export_docx():
-    results = app.config.get("LATEST_RESULTS", {})
+    results, url_val, scan_id = _get_export_data()
     if not results: return "No data", 404
     try:
         from docx import Document
@@ -10351,10 +11138,9 @@ def export_docx():
         return "DOCX export not available. Please install python-docx.", 500
         
     doc = Document()
-    url = app.config.get("LATEST_URL", "Unknown")
-    
+
     # Title
-    title = doc.add_heading(f"Aegis Security Scan Report: {url}", 0)
+    title = doc.add_heading(f"Aegis Security Scan Report: {url_val}", 0)
     title.style.font.color.rgb = RGBColor(0, 80, 155)
     
     doc.add_paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -10380,7 +11166,7 @@ def export_docx():
 
 @app.route("/export/subdomains.csv")
 def export_subdomains_csv():
-    results = app.config.get("LATEST_RESULTS", {})
+    results, _, _ = _get_export_data()
     sd = results.get("subdomain_scan", {})
     rows = sd.get("rows") or [{"subdomain": x} for x in sd.get("found", [])]
     if not rows:
@@ -10403,30 +11189,152 @@ def export_subdomains_csv():
     resp.headers["Content-Type"] = "text/csv"
     return resp
 
-@app.route("/export/report")
-def export_report():
-    results = app.config.get("LATEST_RESULTS", {})
+
+@app.route("/export/stix")
+def export_stix():
+    """Export scan results as a STIX 2.1 Bundle."""
+    results, url_val, scan_id = _get_export_data()
     if not results:
         return "No data to export", 404
-    url_val = app.config.get("LATEST_URL", "N/A")
-    summary = results.get("_summary", {})
-    meta = results.get("_meta", {})
-    owasp = results.get("owasp_top10", {}).get("rows", [])
-    exposures = results.get("exposure_checks", {}).get("rows", [])
-    fuzzer = results.get("fuzzer", {}).get("rows", [])
-    subdomains = results.get("subdomain_scan", {}).get("rows", [])[:15]
-    signatures = results.get("signature_hits", {}).get("rows", [])
+
+    domain = results.get("_meta", {}).get("base_domain", get_domain(url_val))
+    scan_time = results.get("_meta", {}).get("scan_time", datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"))
+    bundle_id = f"bundle--{uuid.uuid4()}"
+
+    objects = []
+
+    # Identity — the scanner
+    scanner_id = f"identity--{uuid.uuid5(uuid.NAMESPACE_URL, 'aegis-scanner')}"
+    objects.append({
+        "type": "identity",
+        "spec_version": "2.1",
+        "id": scanner_id,
+        "created": scan_time,
+        "modified": scan_time,
+        "name": "AEGIS Scanner",
+        "identity_class": "system"
+    })
+
+    # Observable — the target domain
+    domain_id = f"domain-name--{uuid.uuid5(uuid.NAMESPACE_DNS, domain)}"
+    objects.append({
+        "type": "domain-name",
+        "spec_version": "2.1",
+        "id": domain_id,
+        "value": domain
+    })
+
+    # IP observables from DNS
+    dns_data = results.get("dns_records", {})
+    ip_ids = []
+    for ip in dns_data.get("A", []) if isinstance(dns_data, dict) else []:
+        ip_id = f"ipv4-addr--{uuid.uuid5(uuid.NAMESPACE_URL, ip)}"
+        ip_ids.append(ip_id)
+        objects.append({
+            "type": "ipv4-addr",
+            "spec_version": "2.1",
+            "id": ip_id,
+            "value": ip
+        })
+        objects.append({
+            "type": "relationship",
+            "spec_version": "2.1",
+            "id": f"relationship--{uuid.uuid4()}",
+            "created": scan_time,
+            "modified": scan_time,
+            "relationship_type": "resolves-to",
+            "source_ref": domain_id,
+            "target_ref": ip_id
+        })
+
+    # Indicators from MITRE findings
+    mitre = results.get("mitre_attack", {})
+    for finding in mitre.get("findings", []):
+        indicator_id = f"indicator--{uuid.uuid4()}"
+        attack_pattern_id = f"attack-pattern--{uuid.uuid5(uuid.NAMESPACE_URL, finding.get('id', ''))}"
+        objects.append({
+            "type": "indicator",
+            "spec_version": "2.1",
+            "id": indicator_id,
+            "created": scan_time,
+            "modified": scan_time,
+            "name": finding.get("name", "Unknown"),
+            "description": finding.get("evidence", ""),
+            "pattern": f"[domain-name:value = '{domain}']",
+            "pattern_type": "stix",
+            "valid_from": scan_time,
+            "labels": [finding.get("severity", "medium")],
+            "created_by_ref": scanner_id
+        })
+        objects.append({
+            "type": "attack-pattern",
+            "spec_version": "2.1",
+            "id": attack_pattern_id,
+            "created": scan_time,
+            "modified": scan_time,
+            "name": finding.get("name", ""),
+            "external_references": [{
+                "source_name": "mitre-attack",
+                "external_id": finding.get("id", ""),
+                "url": f"https://attack.mitre.org/techniques/{finding.get('id', '').replace('.', '/')}"
+            }]
+        })
+        objects.append({
+            "type": "relationship",
+            "spec_version": "2.1",
+            "id": f"relationship--{uuid.uuid4()}",
+            "created": scan_time,
+            "modified": scan_time,
+            "relationship_type": "indicates",
+            "source_ref": indicator_id,
+            "target_ref": attack_pattern_id
+        })
+
+    # Vulnerability objects from CVE alerts
+    for cve in results.get("cve_alerts", {}).get("rows", []):
+        cve_id = cve.get("id", "")
+        if cve_id:
+            objects.append({
+                "type": "vulnerability",
+                "spec_version": "2.1",
+                "id": f"vulnerability--{uuid.uuid5(uuid.NAMESPACE_URL, cve_id)}",
+                "created": scan_time,
+                "modified": scan_time,
+                "name": cve_id,
+                "external_references": [{
+                    "source_name": "cve",
+                    "external_id": cve_id,
+                    "url": f"https://nvd.nist.gov/vuln/detail/{cve_id}"
+                }]
+            })
+
+    bundle = {
+        "type": "bundle",
+        "id": bundle_id,
+        "objects": objects
+    }
+
+    return Response(
+        json.dumps(bundle, indent=2),
+        mimetype='application/json',
+        headers={'Content-Disposition': 'attachment; filename=aegis-stix-bundle.json'}
+    )
+
+
+@app.route("/export/report")
+def export_report():
+    results, url_val, scan_id = _get_export_data()
+    if not results:
+        return "No data to export", 404
+    # Render the full results page as a self-contained HTML report
     report_html = render_template(
-        'report.html',
+        'results.html',
+        results=results,
         url=url_val,
-        summary=summary,
-        meta=meta,
-        owasp=owasp,
-        exposures=exposures,
-        fuzzer=fuzzer,
-        subdomains=subdomains,
-        signatures=signatures,
-        generated=datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        view_mode='human',
+        mode='defensive',
+        pdf_available=False,
+        scan_id=scan_id
     )
     report_format = request.args.get("format", "pdf").lower()
     if report_format == "html" or WeasyHTML is None:
@@ -10446,37 +11354,99 @@ def export_report():
 
 @app.route("/api/v1/scan", methods=["POST"])
 def api_scan():
-    """REST API endpoint for programmatic scanning."""
+    """REST API endpoint for programmatic scanning. Returns task_id for async tracking."""
     data = request.get_json() or {}
     url_to_scan = data.get("url")
     if not url_to_scan:
         return jsonify({"error": "URL is required"}), 400
-    
+
     services = data.get("services", ["crawler", "tech", "headers", "sec_headers"])
     mode = data.get("mode", "defensive")
-    
+    sync = data.get("sync", False)  # Allow opt-in synchronous mode
+
+    scan_options = {
+        "mode": mode,
+        "extra_subdomains": data.get("extra_subdomains", []),
+        "extra_exposures": data.get("extra_exposures", []),
+        "workflow_steps": data.get("workflow_steps", []),
+    }
+
+    if sync:
+        # Synchronous mode for backwards compat or small scans
+        try:
+            results, normalized_url = run_scan(url_to_scan, services, mode)
+            db = get_db()
+            cur = db.execute(
+                "INSERT INTO scans(url, results, scan_date) VALUES(?,?,?)",
+                (normalized_url, json.dumps(results), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            db.commit()
+            scan_id = cur.lastrowid
+            return jsonify({
+                "success": True,
+                "scan_id": scan_id,
+                "url": normalized_url,
+                "summary": results.get("_summary", {}),
+                "meta": results.get("_meta", {})
+            })
+        except Exception as e:
+            logger.error(f"API scan failed: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    # Async mode (default) — submit to background executor
+    task_id = f"{uuid.uuid4().hex[:12]}"
+    db = get_db()
+    db.execute(
+        'INSERT INTO tasks (id, url, state, scan_date) VALUES (?, ?, ?, ?)',
+        (task_id, url_to_scan, 'PENDING', datetime.now().isoformat())
+    )
+    db.commit()
+
+    TASK_EXECUTOR.submit(run_scan_task, task_id, url_to_scan, services, scan_options)
+
+    return jsonify({
+        "success": True,
+        "task_id": task_id,
+        "status": "PENDING",
+        "poll_url": f"/api/v1/tasks/{task_id}",
+        "message": "Scan queued. Poll the task endpoint for results."
+    }), 202
+
+
+@app.route("/api/v1/tasks/<task_id>", methods=["GET"])
+def api_get_task(task_id):
+    """Poll task status and retrieve results when complete."""
+    db = get_db()
+    row = db.execute(
+        "SELECT id, url, state, completed_modules, results, error FROM tasks WHERE id=?",
+        (task_id,)
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "Task not found"}), 404
+
+    resp = {
+        "task_id": row["id"],
+        "url": row["url"],
+        "state": row["state"],
+        "error": row["error"],
+    }
+
     try:
-        results, normalized_url = run_scan(url_to_scan, services, mode)
-        
-        # Store in database
-        db = get_db()
-        cur = db.execute(
-            "INSERT INTO scans(url, results, scan_date) VALUES(?,?,?)",
-            (normalized_url, json.dumps(results), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        )
-        db.commit()
-        scan_id = cur.lastrowid
-        
-        return jsonify({
-            "success": True,
-            "scan_id": scan_id,
-            "url": normalized_url,
-            "summary": results.get("_summary", {}),
-            "meta": results.get("_meta", {})
-        })
-    except Exception as e:
-        logger.error(f"API scan failed: {e}")
-        return jsonify({"error": str(e)}), 500
+        resp["completed_modules"] = json.loads(row["completed_modules"]) if row["completed_modules"] else []
+    except Exception:
+        resp["completed_modules"] = []
+
+    if row["state"] == "SUCCESS" and row["results"]:
+        try:
+            results = json.loads(row["results"])
+            resp["scan_id"] = results.get("_meta", {}).get("scan_id")
+            resp["summary"] = results.get("_summary", {})
+            resp["meta"] = results.get("_meta", {})
+        except Exception:
+            pass
+
+    status_code = 200 if row["state"] in ("SUCCESS", "FAILURE") else 202
+    return jsonify(resp), status_code
 
 
 @app.route("/api/v1/scan/<int:scan_id>", methods=["GET"])

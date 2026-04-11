@@ -1,45 +1,60 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEGIS — Scheduled Scans</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/aegis.css">
-</head>
-<body class="aegis-dark">
-  <div class="relative z-10 max-w-6xl mx-auto px-4 md:px-8 py-8">
-    <div class="flex items-center justify-between mb-8">
-      <div class="flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center"><i class="fas fa-calendar-check text-white text-xl"></i></div>
-        <div>
-          <h1 class="text-3xl font-extrabold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">Scheduled Scans</h1>
-          <p class="text-gray-500 text-sm">Automated recurring security assessments</p>
-        </div>
-      </div>
-      <a href="/" class="btn-aegis secondary"><i class="fas fa-arrow-left"></i> Back</a>
-    </div>
-    <div class="glass-tier-1 overflow-hidden">
-      <table class="aegis-table">
-        <thead><tr><th>ID</th><th>URL</th><th>Modules</th><th>Interval</th><th>Next Run</th><th>Last Run</th></tr></thead>
-        <tbody>
-        {% for row in items %}
-          <tr>
-            <td class="font-mono font-bold text-blue-400">{{ row.id }}</td>
-            <td class="text-cyan-300">{{ row.url }}</td>
-            <td class="text-xs max-w-xs truncate">{{ row.services }}</td>
-            <td><span class="sev-badge info">{{ row.interval_minutes }} min</span></td>
-            <td class="text-xs">{{ row.next_run }}</td>
-            <td class="text-xs">{{ row.last_run or '—' }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-      {% if not items %}
-        <div class="p-12 text-center text-gray-500"><i class="fas fa-calendar-xmark text-3xl text-gray-700 mb-3"></i><p>No schedules defined yet.</p></div>
-      {% endif %}
+{% extends "base.html" %}
+{% block title %}AEGIS — Scheduled Scans{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #f59e0b, #ef4444)"><i class="fas fa-calendar-check"></i></div>
+    <div>
+      <h1 class="page-title">Scheduled Scans</h1>
+      <p class="page-subtitle">Recurring scan configurations</p>
     </div>
   </div>
-</body>
-</html>
+  <div><a href="/scan/new" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Schedule</a></div>
+</div>
+
+{% if items %}
+<div class="glass-card no-hover overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Target</th>
+          <th>Modules</th>
+          <th>Interval</th>
+          <th>Next Run</th>
+          <th>Last Run</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in items %}
+        <tr>
+          <td class="font-mono text-xs">{{ row.id }}</td>
+          <td>
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs"><i class="fas fa-globe"></i></div>
+              <span class="text-sm text-gray-300 truncate max-w-xs">{{ row.url }}</span>
+            </div>
+          </td>
+          <td class="text-xs text-gray-500 max-w-xs truncate">{{ row.services }}</td>
+          <td><span class="badge badge-info">{{ row.interval_minutes }}m</span></td>
+          <td class="text-xs text-gray-400">{{ row.next_run }}</td>
+          <td class="text-xs text-gray-500">{{ row.last_run or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="glass-card no-hover">
+  <div class="empty-state">
+    <div class="empty-icon"><i class="fas fa-calendar-xmark"></i></div>
+    <div class="empty-title">No scheduled scans</div>
+    <div class="empty-desc">Set up recurring scans from the New Scan page using the schedule option.</div>
+    <a href="/scan/new" class="btn btn-primary"><i class="fas fa-plus"></i> Create Schedule</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

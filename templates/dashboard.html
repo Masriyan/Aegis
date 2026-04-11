@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}AEGIS — Dashboard{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon"><i class="fas fa-gauge-high"></i></div>
+    <div>
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-subtitle">Threat intelligence command center</p>
+    </div>
+  </div>
+  <div style="display:flex;gap:0.5rem">
+    <a href="/scan/new" class="btn btn-primary"><i class="fas fa-crosshairs"></i> New Scan</a>
+  </div>
+</div>
+
+<!-- Stat Cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="stat-card" style="--stat-accent: var(--accent-blue)">
+    <div class="stat-label">Total Scans</div>
+    <div class="stat-value text-blue-400">{{ total_scans }}</div>
+    <i class="fas fa-chart-bar stat-icon text-blue-400"></i>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-emerald)">
+    <div class="stat-label">This Week</div>
+    <div class="stat-value text-emerald-400">{{ week_scans }}</div>
+    <i class="fas fa-calendar-week stat-icon text-emerald-400"></i>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-amber)">
+    <div class="stat-label">Unique Targets</div>
+    <div class="stat-value text-amber-400">{{ unique_targets }}</div>
+    <i class="fas fa-bullseye stat-icon text-amber-400"></i>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-purple)">
+    <div class="stat-label">Avg Risk Score</div>
+    <div class="stat-value" style="color: {% if avg_risk > 70 %}var(--sev-critical){% elif avg_risk > 40 %}var(--sev-medium){% else %}var(--sev-ok){% endif %}">{{ avg_risk }}<span style="font-size:0.9rem;color:var(--text-muted)">/100</span></div>
+    <i class="fas fa-shield-halved stat-icon" style="color: var(--accent-purple)"></i>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-3 gap-6">
+  <!-- LEFT COLUMN: Recent Scans -->
+  <div class="lg:col-span-2 space-y-6">
+    <!-- Quick Scan -->
+    <div class="glass-card no-hover p-5">
+      <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3"><i class="fas fa-bolt text-amber-400 mr-1"></i> Quick Scan</h3>
+      <form action="/scan" method="POST" class="flex gap-3">
+        <input type="text" name="url" class="form-input" placeholder="Enter domain, IP, or URL..." required>
+        <input type="hidden" name="services" value="crawler">
+        <input type="hidden" name="services" value="tech">
+        <input type="hidden" name="services" value="headers">
+        <input type="hidden" name="services" value="sec_headers">
+        <input type="hidden" name="services" value="dns">
+        <input type="hidden" name="services" value="ssl_tls">
+        <input type="hidden" name="services" value="whois">
+        <button type="submit" class="btn btn-primary whitespace-nowrap"><i class="fas fa-bolt"></i> Scan</button>
+      </form>
+    </div>
+
+    <!-- Recent Scans Table -->
+    <div class="glass-card no-hover overflow-hidden">
+      <div class="flex items-center justify-between p-4 border-b" style="border-color: var(--glass-border)">
+        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide"><i class="fas fa-clock text-blue-400 mr-1"></i> Recent Scans</h3>
+        <a href="/scans" class="text-xs text-blue-400 hover:text-blue-300">View all →</a>
+      </div>
+      {% if recent_scans %}
+      <div class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>Date</th>
+              <th>Risk</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for scan in recent_scans %}
+            <tr>
+              <td>
+                <div class="flex items-center gap-2">
+                  <div class="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs flex-shrink-0">
+                    <i class="fas fa-globe"></i>
+                  </div>
+                  <span class="truncate max-w-xs font-medium text-gray-300">{{ scan.url }}</span>
+                </div>
+              </td>
+              <td class="text-xs text-gray-500 whitespace-nowrap">{{ scan.scan_date }}</td>
+              <td>
+                {% set risk = scan.risk_score|default(0) %}
+                <span class="badge {% if risk > 70 %}badge-critical{% elif risk > 40 %}badge-medium{% else %}badge-ok{% endif %}">
+                  {{ risk }}
+                </span>
+              </td>
+              <td>
+                <div class="flex gap-1">
+                  <a href="/view/{{ scan.id }}" class="btn btn-ghost btn-sm" title="View"><i class="fas fa-eye"></i></a>
+                  <a href="/graph/{{ scan.id }}" class="btn btn-ghost btn-sm" title="Graph"><i class="fas fa-diagram-project"></i></a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-inbox"></i></div>
+        <div class="empty-title">No scans yet</div>
+        <div class="empty-desc">Start your first threat hunt to see results here.</div>
+        <a href="/scan/new" class="btn btn-primary"><i class="fas fa-crosshairs"></i> Start Scanning</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: Widgets -->
+  <div class="space-y-6">
+    <!-- Risk Distribution Chart -->
+    <div class="glass-card no-hover p-5">
+      <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4"><i class="fas fa-chart-pie text-purple-400 mr-1"></i> Risk Distribution</h3>
+      <div style="height:200px;position:relative">
+        <canvas id="riskDistChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Module Status -->
+    <div class="glass-card no-hover p-5">
+      <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3"><i class="fas fa-puzzle-piece text-cyan-400 mr-1"></i> Module Status</h3>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between text-sm">
+          <span class="text-gray-400">Total Available</span>
+          <span class="font-semibold text-gray-300">{{ module_count|default(70) }}+</span>
+        </div>
+        <div class="flex items-center justify-between text-sm">
+          <span class="text-gray-400">API Keys Configured</span>
+          <span class="font-semibold text-emerald-400">{{ api_keys_configured|default(0) }}</span>
+        </div>
+        <div class="flex items-center justify-between text-sm">
+          <span class="text-gray-400">AI Engine</span>
+          <span class="badge {% if ai_enabled %}badge-ok{% else %}badge-medium{% endif %}">
+            {{ 'Active' if ai_enabled else 'Inactive' }}
+          </span>
+        </div>
+        <div class="flex items-center justify-between text-sm">
+          <span class="text-gray-400">Celery Workers</span>
+          <span class="badge badge-info">{{ worker_count|default(0) }}</span>
+        </div>
+      </div>
+      <a href="/settings" class="btn btn-secondary btn-sm w-full mt-4"><i class="fas fa-key"></i> Manage API Keys</a>
+    </div>
+
+    <!-- Active Scans -->
+    <div class="glass-card no-hover p-5">
+      <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3"><i class="fas fa-spinner text-green-400 mr-1"></i> Active Scans</h3>
+      <div id="activeScansWidget">
+        <div class="text-sm text-gray-500 text-center py-4">
+          <i class="fas fa-check-circle text-green-400 mr-1"></i> No scans running
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  Chart.defaults.color = '#94a3b8';
+  Chart.defaults.borderColor = 'rgba(75, 85, 99, 0.1)';
+
+  const ctx = document.getElementById('riskDistChart');
+  if (ctx) {
+    new Chart(ctx.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Critical', 'High', 'Medium', 'Low'],
+        datasets: [{
+          data: [{{ risk_critical|default(0) }}, {{ risk_high|default(0) }}, {{ risk_medium|default(0) }}, {{ risk_low|default(0) }}],
+          backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#3b82f6'],
+          borderWidth: 0,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '72%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { font: { family: 'Inter', size: 11 }, usePointStyle: true, padding: 16 }
+          }
+        }
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

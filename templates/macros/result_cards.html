@@ -1,0 +1,881 @@
+{# ============================================================
+   AEGIS Result Card Macros — Enterprise-Grade Module Rendering
+   ============================================================
+   Three-tier rendering:
+     Tier 1: Explicit card macros for 24 key modules
+     Tier 2: Pattern-matched auto-renderer (render_smart)
+     Tier 3: Styled fallback — never shows raw JSON
+   ============================================================ #}
+
+{# ---------- MODULE ICON MAP ---------- #}
+{% set MODULE_ICONS = {
+  'crawler': 'fa-spider', 'http_headers': 'fa-heading', 'tech': 'fa-microchip',
+  'dns_records': 'fa-server', 'whois_lookup': 'fa-id-card', 'subdomain_scan': 'fa-sitemap',
+  'ssl_tls': 'fa-lock', 'tls': 'fa-lock', 'cert_transparency': 'fa-certificate',
+  'sec_headers': 'fa-shield-halved', 'virustotal': 'fa-virus-slash', 'shodan': 'fa-eye',
+  'greynoise': 'fa-volume-xmark', 'abuseipdb': 'fa-ban', 'port_scan': 'fa-ethernet',
+  'email_security': 'fa-envelope-circle-check', 'waf_detect': 'fa-shield',
+  'cors': 'fa-arrows-left-right', 'cookie_audit': 'fa-cookie-bite',
+  'subdomain_takeover': 'fa-skull-crossbones', 'js_secrets': 'fa-key',
+  'ransomware_check': 'fa-biohazard', 'social_intel': 'fa-users',
+  'privacy_detect': 'fa-user-shield', 'compliance_check': 'fa-clipboard-check',
+  'entropy_scan': 'fa-chart-bar', 'asn_lookup': 'fa-globe',
+  'dark_web_footprint': 'fa-user-ninja', 'reputation_timeline': 'fa-chart-line',
+  'infostealer_log_correlation': 'fa-database', 'passive_dns_history': 'fa-clock-rotate-left',
+  'owasp_top10': 'fa-list-check', 'exposure_checks': 'fa-folder-open',
+  'fuzzer': 'fa-bomb', 'github': 'fa-brands fa-github', 'otx': 'fa-satellite-dish',
+  'urlscan': 'fa-magnifying-glass', 'archive_org': 'fa-landmark',
+  'homoglyph_scan': 'fa-spell-check', 'crypto_scan': 'fa-bitcoin-sign',
+  'honeypot_detect': 'fa-jar', 'geo_block': 'fa-earth-americas',
+  'mitre_attack': 'fa-crosshairs', 'threat_actor_profiling': 'fa-user-secret',
+  'domain_risk_scoring': 'fa-chart-area', 'network_topology': 'fa-network-wired',
+  'js_threat_analyzer': 'fa-file-code', 'threat_intel_correlation': 'fa-project-diagram',
+  'signature_hits': 'fa-fingerprint', 'cve_alerts': 'fa-bug',
+  'enhanced_cve': 'fa-bug', 'favicon_hash': 'fa-image',
+  'http_methods': 'fa-right-left', 'code_scan': 'fa-code',
+  'hibp': 'fa-user-lock', 'screenshot': 'fa-camera',
+  'security_txt': 'fa-file-shield', 'robots_txt': 'fa-robot',
+  'social_extract': 'fa-share-nodes', 'ransom_groups': 'fa-skull',
+  'ransom_victims': 'fa-users-slash', 'vuln_predict': 'fa-wand-magic-sparkles',
+  'timing_analysis': 'fa-stopwatch', 'api_fuzzer': 'fa-plug',
+  'link_graph': 'fa-diagram-project', 'sub_cluster': 'fa-object-group',
+  'site_value': 'fa-coins', 'cookie_consent': 'fa-cookie',
+  'brand_extract': 'fa-palette', 'website_dna': 'fa-dna',
+  'mobile_detect': 'fa-mobile-screen', 'media_scan': 'fa-photo-film',
+  'email_harvest': 'fa-at', 'db_leak': 'fa-database',
+  'js_deobfuscate': 'fa-file-code', 'ghost_finder': 'fa-ghost',
+  'password_policy': 'fa-key', 'wordlist_gen': 'fa-list',
+  'tech_timeline': 'fa-timeline', 'attack_map': 'fa-map',
+  'scan_diff': 'fa-code-compare', 'report_narrative': 'fa-file-lines',
+  'delta_alerts': 'fa-bell', 'workflow': 'fa-gears',
+} %}
+
+{# ============================================================
+   PRIMITIVE MACROS
+   ============================================================ #}
+
+{# --- Score Bar: horizontal color-coded progress bar --- #}
+{% macro render_score_bar(score, max_val=100, label='') %}
+{% set pct = ((score / max_val * 100) if max_val else 0) | round | int %}
+{% set pct = [pct, 100] | min %}
+{% set sev = 'critical' if pct > 80 else ('high' if pct > 60 else ('medium' if pct > 40 else 'ok')) %}
+<div class="rc-score-bar-wrap">
+  {% if label %}<span class="rc-score-label">{{ label }}</span>{% endif %}
+  <div class="rc-score-bar">
+    <div class="rc-score-fill rc-sev-{{ sev }}" style="width:{{ pct }}%"></div>
+  </div>
+  <span class="rc-score-val">{{ score }}{% if max_val != 1 %}<span class="rc-score-max">/{{ max_val }}</span>{% endif %}</span>
+</div>
+{% endmacro %}
+
+{# --- Grade Badge: A/B/C/D/F --- #}
+{% macro render_grade_badge(grade, label='') %}
+{% set g = grade | upper if grade else '?' %}
+{% set cls = 'ok' if g in ('A','A+','B') else ('medium' if g == 'C' else 'critical') %}
+<span class="rc-grade rc-sev-{{ cls }}">{{ g }}</span>
+{% if label %}<span class="rc-grade-label">{{ label }}</span>{% endif %}
+{% endmacro %}
+
+{# --- Boolean Status: green check / red X --- #}
+{% macro render_bool_status(val, true_label='Yes', false_label='No', invert=false) %}
+{% set is_good = (not val) if invert else val %}
+<span class="rc-bool {% if is_good %}rc-bool-good{% else %}rc-bool-bad{% endif %}">
+  <i class="fas {% if is_good %}fa-check-circle{% else %}fa-times-circle{% endif %}"></i>
+  {{ true_label if val else false_label }}
+</span>
+{% endmacro %}
+
+{# --- Key-Value Grid: renders flat dict as 2-col grid --- #}
+{% macro render_kv_grid(data, cols=2, mono_keys=[], skip_keys=[]) %}
+<div class="rc-kv-grid" style="grid-template-columns: repeat({{ cols }}, max-content 1fr)">
+  {% for k, v in data.items() if k not in skip_keys %}
+    {% if v is not mapping and v is not iterable or v is string %}
+    <div class="rc-kv-key">{{ k.replace('_', ' ').title() }}</div>
+    <div class="rc-kv-val {% if k in mono_keys or (v is string and (v | length) > 20 and '.' in v|string) %}rc-mono{% endif %}">
+      {% if v is sameas true %}<span class="rc-bool rc-bool-good"><i class="fas fa-check-circle"></i> Yes</span>
+      {% elif v is sameas false %}<span class="rc-bool rc-bool-bad"><i class="fas fa-times-circle"></i> No</span>
+      {% elif v is none %}<span class="text-gray-600">N/A</span>
+      {% else %}{{ v }}{% endif %}
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# --- Data Table: list of dicts as table --- #}
+{% macro render_data_table(rows, max_rows=30, severity_col='', highlight_col='') %}
+{% if rows and rows | length > 0 %}
+{% set display_rows = rows[:max_rows] %}
+<div class="overflow-x-auto">
+  <table class="data-table">
+    <thead><tr>
+      {% for col in display_rows[0].keys() %}
+      <th>{{ col.replace('_', ' ').title() }}</th>
+      {% endfor %}
+    </tr></thead>
+    <tbody>
+      {% for row in display_rows %}
+      <tr>
+        {% for col, val in row.items() %}
+        <td class="text-xs {% if col == highlight_col %}font-semibold text-gray-200{% endif %}
+          {% if col == severity_col %}{% if val in ('critical','high') %}text-red-400{% elif val == 'medium' %}text-amber-400{% else %}text-emerald-400{% endif %}{% endif %}">
+          {% if val is iterable and val is not string %}{{ val | join(', ') }}
+          {% elif val is sameas true %}<i class="fas fa-check-circle text-emerald-400"></i>
+          {% elif val is sameas false %}<i class="fas fa-times-circle text-red-400"></i>
+          {% else %}{{ val }}{% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if rows | length > max_rows %}
+<div class="text-xs text-gray-500 mt-2">Showing {{ max_rows }} of {{ rows | length }} items</div>
+{% endif %}
+{% else %}
+<div class="text-sm text-gray-500">No data</div>
+{% endif %}
+{% endmacro %}
+
+{# --- Badge List: string array as colored badges --- #}
+{% macro render_badge_list(items, cls='badge-info', icon='') %}
+{% if items %}
+<div class="flex flex-wrap gap-1.5">
+  {% for item in items %}
+  <span class="badge {{ cls }}">{% if icon %}<i class="fas {{ icon }} mr-1"></i>{% endif %}{{ item }}</span>
+  {% endfor %}
+</div>
+{% else %}
+<span class="text-sm text-gray-500">None</span>
+{% endif %}
+{% endmacro %}
+
+{# --- Expandable List: shows max_visible with CSS toggle --- #}
+{% macro render_expandable_list(items, uid, max_visible=5) %}
+{% if items %}
+<div class="rc-expandable">
+  <div class="flex flex-wrap gap-1.5">
+    {% for item in items[:max_visible] %}
+    <span class="badge badge-info rc-mono text-xs">{{ item }}</span>
+    {% endfor %}
+  </div>
+  {% if items | length > max_visible %}
+  <input type="checkbox" id="exp_{{ uid }}" class="sr-only rc-exp-check">
+  <div class="rc-exp-content">
+    <div class="flex flex-wrap gap-1.5 mt-1.5">
+      {% for item in items[max_visible:] %}
+      <span class="badge badge-info rc-mono text-xs">{{ item }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  <label for="exp_{{ uid }}" class="rc-exp-toggle">
+    <span class="rc-exp-more">Show {{ items | length - max_visible }} more</span>
+    <span class="rc-exp-less">Show less</span>
+  </label>
+  {% endif %}
+</div>
+{% else %}
+<span class="text-sm text-gray-500">None</span>
+{% endif %}
+{% endmacro %}
+
+{# --- Subsection header --- #}
+{% macro render_subsection(title, icon='') %}
+<div class="rc-subsection">
+  {% if icon %}<i class="fas {{ icon }} rc-subsection-icon"></i>{% endif %}
+  {{ title }}
+</div>
+{% endmacro %}
+
+{# --- Stat Mini Card --- #}
+{% macro render_stat(value, label, sev='') %}
+<div class="rc-stat-mini">
+  <div class="rc-stat-val {% if sev %}rc-sev-{{ sev }}{% endif %}">{{ value }}</div>
+  <div class="rc-stat-label">{{ label }}</div>
+</div>
+{% endmacro %}
+
+
+{# ============================================================
+   SMART AUTO-RENDERER (Tier 2 + 3)
+   ============================================================ #}
+
+{% macro render_smart(key, value, depth=0) %}
+{% if depth > 3 %}
+  <pre class="rc-fallback-pre">{{ value | tojson(indent=2) }}</pre>
+{% elif value is sameas true or value is sameas false %}
+  {% set is_bad_key = 'vulnerable' in key or 'malicious' in key or 'suspicious' in key or 'detected' in key or 'blocked' in key %}
+  {{ render_bool_status(value, 'Yes', 'No', invert=is_bad_key) }}
+{% elif value is number %}
+  {% set is_score = 'score' in key or 'count' in key or 'total' in key or 'found' in key %}
+  {% if is_score %}
+    <span class="rc-stat-inline">{{ value }}</span>
+  {% else %}
+    <span class="text-sm text-gray-300">{{ value }}</span>
+  {% endif %}
+{% elif value is string %}
+  {% set is_mono = (':' in value and '.' in value) or value | length > 40 %}
+  <span class="text-sm {% if is_mono %}rc-mono{% endif %} text-gray-300">{{ value }}</span>
+{% elif value is iterable and value is not mapping %}
+  {% if value | length == 0 %}
+    <span class="text-sm text-gray-500">Empty</span>
+  {% elif value[0] is mapping %}
+    {{ render_data_table(value) }}
+  {% elif value[0] is string %}
+    {{ render_expandable_list(value, key ~ '_auto', 8) }}
+  {% else %}
+    {{ render_badge_list(value | map('string') | list) }}
+  {% endif %}
+{% elif value is mapping %}
+  {# Check for error #}
+  {% if value.get('error') %}
+    <div class="text-sm text-red-400"><i class="fas fa-exclamation-triangle mr-1"></i> {{ value.error }}</div>
+  {# Check for rows pattern #}
+  {% elif value.get('rows') is iterable %}
+    {{ render_data_table(value.rows) }}
+  {% else %}
+    {# Separate flat fields from nested structures #}
+    {% set flat = {} %}
+    {% set nested = {} %}
+    {% for k, v in value.items() %}
+      {% if v is mapping or (v is iterable and v is not string and v | length > 0 and v[0] is mapping) %}
+        {% set _ = nested.update({k: v}) %}
+      {% elif v is iterable and v is not string and v | length > 3 %}
+        {% set _ = nested.update({k: v}) %}
+      {% else %}
+        {% set _ = flat.update({k: v}) %}
+      {% endif %}
+    {% endfor %}
+    {% if flat %}
+      {{ render_kv_grid(flat) }}
+    {% endif %}
+    {% for k, v in nested.items() %}
+      {{ render_subsection(k.replace('_', ' ').title()) }}
+      {{ render_smart(k, v, depth + 1) }}
+    {% endfor %}
+  {% endif %}
+{% else %}
+  <span class="text-sm text-gray-400">{{ value }}</span>
+{% endif %}
+{% endmacro %}
+
+
+{# ============================================================
+   TIER 1: EXPLICIT MODULE CARD MACROS
+   ============================================================ #}
+
+{# ---------- DNS Records ---------- #}
+{% macro card_dns_records(d) %}
+<div class="rc-grid-panels">
+  {% for rtype in ['A','AAAA','MX','NS','TXT','SOA'] %}
+  <div class="rc-panel">
+    <div class="rc-panel-header">{{ rtype }}</div>
+    {% if d.get(rtype) %}
+      {% for rec in d[rtype] %}
+      <div class="rc-mono text-xs text-gray-300 py-0.5">{{ rec }}</div>
+      {% endfor %}
+    {% else %}
+      <div class="text-xs text-gray-600">No records</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# ---------- WHOIS Lookup ---------- #}
+{% macro card_whois_lookup(d) %}
+{% set priority = ['domain_name','registrar','creation_date','expiration_date','updated_date','name_servers','registrant_organization','registrant_country','dnssec','status'] %}
+<div class="rc-kv-grid" style="grid-template-columns: repeat(2, max-content 1fr)">
+  {% for k in priority if d.get(k) is not none %}
+  <div class="rc-kv-key">{{ k.replace('_',' ').title() }}</div>
+  <div class="rc-kv-val {% if k in ('domain_name','name_servers') %}rc-mono{% endif %}">
+    {% if d[k] is iterable and d[k] is not string %}{{ d[k] | join(', ') }}{% else %}{{ d[k] }}{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{# Show remaining fields that weren't in priority #}
+{% set shown = priority %}
+{% set extra = {} %}
+{% for k, v in d.items() if k not in shown and v is not none and v != '' and k != 'error' %}
+  {% set _ = extra.update({k: v}) %}
+{% endfor %}
+{% if extra %}
+{{ render_subsection('Additional Fields') }}
+{{ render_kv_grid(extra) }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- SSL/TLS Analysis ---------- #}
+{% macro card_ssl_tls(d) %}
+<div class="flex items-center gap-6 mb-4">
+  {% if d.get('grade') %}{{ render_grade_badge(d.grade, 'TLS Grade') }}{% endif %}
+  {% if d.get('score') is not none %}
+  <div>{{ render_score_bar(d.score, 100, 'Score') }}</div>
+  {% endif %}
+</div>
+{{ render_kv_grid({'Protocol': d.get('protocol','—'), 'Cipher Suite': d.get('cipher_suite','—')}, cols=1, mono_keys=['Protocol','Cipher Suite']) }}
+{% if d.get('certificate') %}
+{{ render_subsection('Certificate', 'fa-certificate') }}
+{% set cert = d.certificate %}
+<div class="rc-kv-grid" style="grid-template-columns: repeat(2, max-content 1fr)">
+  {% if cert.get('subject') %}<div class="rc-kv-key">Subject</div><div class="rc-kv-val rc-mono">{{ cert.subject if cert.subject is string else cert.subject.values() | join(', ') }}</div>{% endif %}
+  {% if cert.get('issuer') %}<div class="rc-kv-key">Issuer</div><div class="rc-kv-val">{{ cert.issuer if cert.issuer is string else cert.issuer.values() | join(', ') }}</div>{% endif %}
+  {% if cert.get('not_before') %}<div class="rc-kv-key">Valid From</div><div class="rc-kv-val">{{ cert.not_before }}</div>{% endif %}
+  {% if cert.get('not_after') %}<div class="rc-kv-key">Expires</div><div class="rc-kv-val {% if cert.get('days_until_expiry',999) < 30 %}text-red-400 font-semibold{% endif %}">{{ cert.not_after }}{% if cert.get('days_until_expiry') is not none %} ({{ cert.days_until_expiry }}d){% endif %}</div>{% endif %}
+</div>
+{% if cert.get('san') %}
+{{ render_subsection('Subject Alternative Names') }}
+{{ render_expandable_list(cert.san, 'ssl_san', 6) }}
+{% endif %}
+{% endif %}
+{% if d.get('issues') %}
+{{ render_subsection('Issues', 'fa-triangle-exclamation') }}
+{{ render_badge_list(d.issues, 'badge-high', 'fa-exclamation-triangle') }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Certificate Transparency ---------- #}
+{% macro card_cert_transparency(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('total_certificates_found', 0), 'Certificates Found') }}
+</div>
+{% if d.get('analysis') %}
+{% set a = d.analysis %}
+<div class="flex flex-wrap gap-3 mb-3">
+  {{ render_bool_status(a.get('wildcard_certs_found', false), 'Wildcards Found', 'No Wildcards', invert=true) }}
+  {{ render_bool_status(a.get('recent_issuance', false), 'Recent Issuance', 'No Recent', invert=true) }}
+</div>
+{% if a.get('flags') %}{{ render_badge_list(a.flags, 'badge-high', 'fa-flag') }}{% endif %}
+{% if a.get('unique_issuers') %}
+{{ render_subsection('Certificate Issuers') }}
+{{ render_badge_list(a.unique_issuers, 'badge-info') }}
+{% endif %}
+{% endif %}
+{% if d.get('certificates') %}
+{{ render_subsection('Recent Certificates') }}
+{{ render_data_table(d.certificates, 10) }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- ASN Lookup ---------- #}
+{% macro card_asn_lookup(d) %}
+{{ render_kv_grid(d, cols=1, mono_keys=['ip','asn','prefix']) }}
+{% endmacro %}
+
+{# ---------- VirusTotal ---------- #}
+{% macro card_virustotal(d) %}
+{% set attrs = (d.get('data',{}) or {}).get('attributes',{}) or {} %}
+{% set stats = attrs.get('last_analysis_stats',{}) or {} %}
+{% if stats %}
+<div class="flex flex-wrap gap-3 mb-4">
+  {{ render_stat(stats.get('malicious',0), 'Malicious', 'critical' if stats.get('malicious',0) > 0 else '') }}
+  {{ render_stat(stats.get('suspicious',0), 'Suspicious', 'medium' if stats.get('suspicious',0) > 0 else '') }}
+  {{ render_stat(stats.get('harmless',0), 'Harmless', 'ok') }}
+  {{ render_stat(stats.get('undetected',0), 'Undetected') }}
+</div>
+{% set total = (stats.get('malicious',0) + stats.get('suspicious',0) + stats.get('harmless',0) + stats.get('undetected',0)) or 1 %}
+<div class="rc-vt-bar mb-3">
+  <div class="rc-vt-seg rc-sev-critical" style="width:{{ (stats.get('malicious',0) / total * 100) | round }}%"></div>
+  <div class="rc-vt-seg rc-sev-medium" style="width:{{ (stats.get('suspicious',0) / total * 100) | round }}%"></div>
+  <div class="rc-vt-seg rc-sev-ok" style="width:{{ (stats.get('harmless',0) / total * 100) | round }}%"></div>
+  <div class="rc-vt-seg" style="width:{{ (stats.get('undetected',0) / total * 100) | round }}%;background:var(--glass-border)"></div>
+</div>
+{% else %}
+{# Raw VT response without expected structure — use auto-renderer #}
+{{ render_smart('virustotal', d, 1) }}
+{% endif %}
+{% if attrs.get('reputation') is not none %}
+<div class="text-xs text-gray-400">Community Reputation: <span class="text-gray-200 font-semibold">{{ attrs.reputation }}</span></div>
+{% endif %}
+{% endmacro %}
+
+{# ---------- Shodan ---------- #}
+{% macro card_shodan(d) %}
+{% set flat_fields = {'IP': d.get('ip_str',''), 'Organization': d.get('org',''), 'ISP': d.get('isp',''), 'Country': d.get('country_name',''), 'City': d.get('city',''), 'OS': d.get('os',''), 'Last Update': d.get('last_update','')} %}
+{{ render_kv_grid(flat_fields, cols=2) }}
+{% if d.get('ports') %}
+{{ render_subsection('Open Ports', 'fa-ethernet') }}
+{{ render_badge_list(d.ports | map('string') | list, 'badge-info', 'fa-plug') }}
+{% endif %}
+{% if d.get('vulns') %}
+{{ render_subsection('Vulnerabilities', 'fa-bug') }}
+{{ render_badge_list(d.vulns, 'badge-critical', 'fa-skull-crossbones') }}
+{% endif %}
+{% if d.get('hostnames') %}
+{{ render_subsection('Hostnames') }}
+{{ render_badge_list(d.hostnames, 'badge-info') }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- GreyNoise ---------- #}
+{% macro card_greynoise(d) %}
+{% set cls_map = {'malicious': 'critical', 'benign': 'ok', 'unknown': 'medium'} %}
+{% set cls = cls_map.get(d.get('classification',''), '') %}
+<div class="flex items-center gap-4 mb-3">
+  {% if d.get('classification') %}<span class="badge rc-sev-{{ cls }} text-sm px-3 py-1">{{ d.classification | upper }}</span>{% endif %}
+  {{ render_bool_status(d.get('noise', false), 'Internet Noise', 'Not Noise') }}
+  {{ render_bool_status(d.get('riot', false), 'Known Service (RIOT)', 'Not RIOT') }}
+</div>
+{{ render_kv_grid({'Name': d.get('name','—'), 'Last Seen': d.get('last_seen','—'), 'IP': d.get('ip','—'), 'Link': d.get('link','—')}) }}
+{% endmacro %}
+
+{# ---------- AbuseIPDB ---------- #}
+{% macro card_abuseipdb(d) %}
+{% set data = d.get('data',{}) or d %}
+{% set conf = data.get('abuseConfidenceScore', data.get('abuse_confidence_score', 0)) %}
+<div class="flex items-center gap-6 mb-4">
+  <div>
+    <div class="text-3xl font-bold {% if conf > 70 %}text-red-400{% elif conf > 30 %}text-amber-400{% else %}text-emerald-400{% endif %}">{{ conf }}<span class="text-sm text-gray-500">%</span></div>
+    <div class="text-xs text-gray-500">Abuse Confidence</div>
+  </div>
+  {{ render_stat(data.get('totalReports', data.get('total_reports', 0)), 'Total Reports') }}
+</div>
+{{ render_kv_grid({'Country': data.get('countryCode', data.get('country','')), 'ISP': data.get('isp',''), 'Domain': data.get('domain',''), 'Usage Type': data.get('usageType', data.get('usage_type',''))}) }}
+{% endmacro %}
+
+{# ---------- Ransomware Check ---------- #}
+{% macro card_ransomware_check(d) %}
+{% if d.get('found') %}
+<div class="rc-alert-critical mb-3">
+  <i class="fas fa-biohazard mr-2"></i> FOUND ON RANSOMWARE LEAK SITES
+</div>
+{% if d.get('matches') %}
+{{ render_data_table(d.matches, highlight_col='group', severity_col='') }}
+{% endif %}
+{% else %}
+<div class="flex items-center gap-3 p-3 rounded-lg" style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2)">
+  <i class="fas fa-shield-check text-emerald-400 text-lg"></i>
+  <span class="text-emerald-400 font-semibold">Not Found on Known Leak Sites</span>
+</div>
+{% endif %}
+{% if d.get('sources_checked') %}
+<div class="mt-3 text-xs text-gray-500">Sources: {{ d.sources_checked | join(', ') }}</div>
+{% endif %}
+{% endmacro %}
+
+{# ---------- Dark Web Footprint ---------- #}
+{% macro card_dark_web_footprint(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('mentions_found', 0), 'Dark Web Mentions', 'critical' if d.get('mentions_found',0) > 0 else 'ok') }}
+  <span class="badge {% if 'High' in d.get('risk_assessment','') %}badge-critical{% else %}badge-ok{% endif %}">{{ d.get('risk_assessment','Low') }}</span>
+</div>
+{% if d.get('onion_links') %}
+{{ render_subsection('Onion Link References', 'fa-user-ninja') }}
+{% for link in d.onion_links[:5] %}
+<div class="p-2 rounded mb-1.5" style="background:rgba(15,23,42,0.5)">
+  <div class="text-sm text-gray-200 font-medium">{{ link.get('title','Unknown') }}</div>
+  <div class="text-xs rc-mono text-gray-500">{{ link.get('url','') }}</div>
+  {% if link.get('snippet') %}<div class="text-xs text-gray-400 mt-1">{{ link.snippet }}</div>{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Reputation Timeline ---------- #}
+{% macro card_reputation_timeline(d) %}
+{% set trend_cls = 'critical' if 'Malicious' in d.get('reputation_trend','') else ('medium' if 'Suspicious' in d.get('reputation_trend','') or 'Volatile' in d.get('reputation_trend','') else 'ok') %}
+<div class="flex items-center gap-4 mb-3">
+  <span class="badge rc-sev-{{ trend_cls }} text-sm px-3 py-1">{{ d.get('reputation_trend','Unknown') }}</span>
+  {{ render_bool_status(d.get('evasion_detected', false), 'Evasion Detected', 'No Evasion', invert=true) }}
+</div>
+{% if d.get('feeds_checked') %}
+<div class="text-xs text-gray-500 mb-3">Feeds checked: {{ d.feeds_checked | join(', ') }}</div>
+{% endif %}
+{% if d.get('historical_detections') %}
+{{ render_subsection('Historical Detections', 'fa-clock-rotate-left') }}
+{{ render_data_table(d.historical_detections, 15, severity_col='confidence') }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Infostealer Log Correlation ---------- #}
+{% macro card_infostealer_logs(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('breach_hits', 0), 'Breach Hits', 'critical' if d.get('breach_hits',0) > 0 else 'ok') }}
+</div>
+{% if d.get('compromised_accounts') %}
+{{ render_subsection('Compromised Accounts', 'fa-user-lock') }}
+{{ render_data_table(d.compromised_accounts, 10) }}
+{% endif %}
+{% if d.get('sources_checked') %}
+<div class="text-xs text-gray-500 mt-2">Sources: {{ d.sources_checked | join(', ') }}</div>
+{% endif %}
+{% endmacro %}
+
+{# ---------- Port Scan ---------- #}
+{% macro card_port_scan(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('open_count', 0), 'Open Ports') }}
+  {% if d.get('target_ip') %}<span class="rc-mono text-sm text-gray-400">{{ d.target_ip }}</span>{% endif %}
+</div>
+{% if d.get('open_ports') %}
+<div class="overflow-x-auto">
+  <table class="data-table">
+    <thead><tr><th>Port</th><th>Service</th><th>State</th></tr></thead>
+    <tbody>
+      {% for p in d.open_ports %}
+      <tr class="{% if p.get('port') in [21,23,445,3389,5900] %}rc-row-risk{% endif %}">
+        <td class="rc-mono font-semibold text-gray-200">{{ p.port }}</td>
+        <td>{{ p.get('service','') }}</td>
+        <td><span class="badge badge-ok">{{ p.get('state','open') }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% if d.get('risk_ports') %}
+{{ render_subsection('Risk Ports', 'fa-triangle-exclamation') }}
+{{ render_data_table(d.risk_ports) }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Email Security ---------- #}
+{% macro card_email_security(d) %}
+<div class="flex items-center gap-6 mb-4">
+  {% if d.get('grade') %}{{ render_grade_badge(d.grade, 'Email Grade') }}{% endif %}
+  {% if d.get('score') is not none %}{{ render_score_bar(d.score, 100, 'Score') }}{% endif %}
+</div>
+<div class="grid sm:grid-cols-3 gap-3 mb-3">
+  {% for proto in ['spf','dkim','dmarc'] %}
+  {% set p = d.get(proto, {}) %}
+  <div class="rc-panel">
+    <div class="rc-panel-header">{{ proto | upper }}</div>
+    {% if p is mapping %}
+      {{ render_bool_status(p.get('found', false), 'Configured', 'Missing') }}
+      {% if p.get('record') %}<div class="rc-mono text-xs text-gray-400 mt-1 break-all">{{ p.record[:120] }}{% if p.record | length > 120 %}...{% endif %}</div>{% endif %}
+      {% if p.get('policy') %}<div class="text-xs text-gray-500 mt-1">Policy: <span class="text-gray-300">{{ p.policy }}</span></div>{% endif %}
+    {% else %}
+      <span class="text-xs text-gray-500">Not checked</span>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% if d.get('recommendations') %}
+{{ render_subsection('Recommendations', 'fa-lightbulb') }}
+{{ render_badge_list(d.recommendations, 'badge-medium', 'fa-arrow-right') }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- WAF Detect ---------- #}
+{% macro card_waf_detect(d) %}
+{% if d.get('likely_protected') or d.get('detected') %}
+<div class="flex items-center gap-3 p-3 rounded-lg mb-3" style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2)">
+  <i class="fas fa-shield text-emerald-400 text-lg"></i>
+  <span class="text-emerald-400 font-semibold">WAF Detected</span>
+  {% if d.get('confidence') %}<span class="badge badge-ok">{{ d.confidence }} confidence</span>{% endif %}
+</div>
+{% if d.get('detected') %}{{ render_badge_list(d.detected, 'badge-info', 'fa-shield') }}{% endif %}
+{% else %}
+<div class="flex items-center gap-3 p-3 rounded-lg mb-3" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2)">
+  <i class="fas fa-shield-xmark text-red-400 text-lg"></i>
+  <span class="text-red-400 font-semibold">No WAF Detected</span>
+</div>
+{% endif %}
+{% if d.get('headers_evidence') %}
+{{ render_subsection('Evidence') }}
+{{ render_badge_list(d.headers_evidence, 'badge-info') }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- CORS Check ---------- #}
+{% macro card_cors(d) %}
+<div class="mb-3">
+  {{ render_bool_status(d.get('vulnerable', false), 'Vulnerable', 'Not Vulnerable', invert=true) }}
+</div>
+{% if d.get('issues') %}
+{{ render_badge_list(d.issues, 'badge-critical', 'fa-exclamation-triangle') }}
+{% endif %}
+{% if d.get('headers') %}
+{{ render_subsection('CORS Headers') }}
+{{ render_kv_grid(d.headers, cols=1, mono_keys=d.headers.keys()|list) }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Cookie Audit ---------- #}
+{% macro card_cookie_audit(d) %}
+{% if d.get('score') is not none %}
+<div class="mb-3">{{ render_score_bar(d.score, 100, 'Cookie Security Score') }}</div>
+{% endif %}
+{% if d.get('cookies') %}
+<div class="overflow-x-auto">
+  <table class="data-table">
+    <thead><tr><th>Name</th><th>Secure</th><th>HttpOnly</th><th>SameSite</th><th>Issues</th></tr></thead>
+    <tbody>
+      {% for c in d.cookies[:20] %}
+      <tr>
+        <td class="rc-mono text-gray-200 font-semibold text-xs">{{ c.get('name','') }}</td>
+        <td>{% if c.get('secure') %}<i class="fas fa-check-circle text-emerald-400"></i>{% else %}<i class="fas fa-times-circle text-red-400"></i>{% endif %}</td>
+        <td>{% if c.get('httponly') %}<i class="fas fa-check-circle text-emerald-400"></i>{% else %}<i class="fas fa-times-circle text-red-400"></i>{% endif %}</td>
+        <td><span class="badge {% if c.get('samesite') == 'Strict' %}badge-ok{% elif c.get('samesite') == 'Lax' %}badge-medium{% else %}badge-critical{% endif %}">{{ c.get('samesite') or 'None' }}</span></td>
+        <td class="text-xs text-red-400">{{ c.get('issues', []) | join(', ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endmacro %}
+
+{# ---------- Subdomain Takeover ---------- #}
+{% macro card_subdomain_takeover(d) %}
+{% set vuln_count = d.get('vulnerable', []) | length %}
+<div class="mb-3">
+  {% if vuln_count > 0 %}
+  <div class="rc-alert-critical"><i class="fas fa-skull-crossbones mr-2"></i> {{ vuln_count }} Takeover{{ 's' if vuln_count > 1 }} Possible</div>
+  {% else %}
+  <div class="flex items-center gap-2 text-emerald-400"><i class="fas fa-shield-check"></i> <span class="font-semibold">No Takeover Vulnerabilities Found</span></div>
+  {% endif %}
+</div>
+{% if d.get('vulnerable') and d.vulnerable is iterable and d.vulnerable | length > 0 %}
+{{ render_data_table(d.vulnerable, highlight_col='subdomain', severity_col='') }}
+{% endif %}
+{% if d.get('cname_records') %}
+{{ render_subsection('CNAME Records') }}
+{{ render_expandable_list(d.cname_records, 'takeover_cnames', 5) }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Entropy Scan ---------- #}
+{% macro card_entropy_scan(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('high_entropy_count', d.get('secrets_found',[])|length), 'Secrets Found', 'critical' if d.get('high_entropy_count',0) > 0 else 'ok') }}
+  {{ render_stat(d.get('js_files_scanned', 0), 'JS Files Scanned') }}
+</div>
+{% if d.get('secrets_found') %}
+<div class="overflow-x-auto">
+  <table class="data-table">
+    <thead><tr><th>Value</th><th>Entropy</th><th>Category</th><th>Severity</th></tr></thead>
+    <tbody>
+      {% for s in d.secrets_found[:20] %}
+      <tr>
+        <td class="rc-mono text-xs">{{ s.get('value','')[:60] }}{% if s.get('value','')|length > 60 %}...{% endif %}</td>
+        <td>{{ '%.2f' | format(s.get('entropy',0)) }}</td>
+        <td>{{ s.get('category','') }}</td>
+        <td><span class="badge {% if s.get('severity') == 'critical' %}badge-critical{% elif s.get('severity') == 'high' %}badge-high{% else %}badge-medium{% endif %}">{{ s.get('severity','') }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endmacro %}
+
+{# ---------- Crawler ---------- #}
+{% macro card_crawler(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('stats',{}).get('pages_scanned', d.get('urls',[])|length), 'Pages Crawled') }}
+  {{ render_stat(d.get('emails',[])|length, 'Emails') }}
+  {{ render_stat(d.get('forms',[])|length, 'Forms') }}
+  {{ render_stat(d.get('js_files',[])|length, 'JS Files') }}
+</div>
+{% if d.get('emails') %}
+{{ render_subsection('Emails', 'fa-at') }}
+{{ render_badge_list(d.emails, 'badge-info', 'fa-envelope') }}
+{% endif %}
+{% if d.get('api_endpoints') %}
+{{ render_subsection('API Endpoints', 'fa-plug') }}
+{{ render_expandable_list(d.api_endpoints, 'crawler_apis', 5) }}
+{% endif %}
+{% if d.get('social_media') %}
+{{ render_subsection('Social Media', 'fa-share-nodes') }}
+{% if d.social_media[0] is mapping %}
+{{ render_data_table(d.social_media) }}
+{% else %}
+{{ render_badge_list(d.social_media, 'badge-info') }}
+{% endif %}
+{% endif %}
+{% if d.get('external_links') %}
+{{ render_subsection('External Links', 'fa-external-link') }}
+{{ render_expandable_list(d.external_links, 'crawler_ext', 5) }}
+{% endif %}
+{% if d.get('forms') %}
+{{ render_subsection('Forms', 'fa-rectangle-list') }}
+{{ render_data_table(d.forms, 10) }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Tech / Fingerprint ---------- #}
+{% macro card_tech(d) %}
+{% if d.get('stack') is iterable %}
+{{ render_badge_list(d.stack, 'badge-info', 'fa-microchip') }}
+{% elif d is mapping %}
+{{ render_kv_grid(d) }}
+{% else %}
+{{ render_smart('tech', d) }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Social Intelligence ---------- #}
+{% macro card_social_intel(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('total_platforms', d.get('profiles',[])|length), 'Platforms Checked') }}
+</div>
+{% if d.get('profiles') %}
+<div class="overflow-x-auto">
+  <table class="data-table">
+    <thead><tr><th>Platform</th><th>URL</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for p in d.profiles[:30] %}
+      <tr>
+        <td class="font-semibold text-gray-200">{% if p.get('icon') %}<i class="{{ p.icon }} mr-1"></i>{% endif %}{{ p.get('platform','') }}</td>
+        <td class="rc-mono text-xs text-blue-400">{{ p.get('url','') }}</td>
+        <td>
+          {% if p.get('exists') is sameas true %}<span class="badge badge-ok">Found</span>
+          {% elif p.get('exists') is sameas false %}<span class="badge badge-info">Not Found</span>
+          {% else %}<span class="badge badge-medium">Unknown</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endmacro %}
+
+{# ---------- Privacy Detect ---------- #}
+{% macro card_privacy_detect(d) %}
+<div class="flex items-center gap-6 mb-4">
+  {% if d.get('privacy_score') is not none %}
+  <div>
+    <div class="text-3xl font-bold {% if d.privacy_score < 40 %}text-red-400{% elif d.privacy_score < 70 %}text-amber-400{% else %}text-emerald-400{% endif %}">{{ d.privacy_score }}<span class="text-sm text-gray-500">/100</span></div>
+    <div class="text-xs text-gray-500">Privacy Score</div>
+  </div>
+  {% endif %}
+  {% if d.get('risk_level') %}<span class="badge {% if d.risk_level == 'high' %}badge-critical{% elif d.risk_level == 'medium' %}badge-medium{% else %}badge-ok{% endif %} text-sm px-3 py-1">{{ d.risk_level | upper }} RISK</span>{% endif %}
+</div>
+{% if d.get('trackers') %}
+{{ render_subsection('Trackers Detected', 'fa-eye') }}
+{{ render_badge_list(d.trackers, 'badge-high') }}
+{% endif %}
+{% if d.get('fingerprinting_techniques') %}
+{{ render_subsection('Fingerprinting Techniques') }}
+{{ render_badge_list(d.fingerprinting_techniques, 'badge-medium') }}
+{% endif %}
+{% endmacro %}
+
+{# ---------- Compliance Check ---------- #}
+{% macro card_compliance_check(d) %}
+{% if d.get('overall_score') is not none %}
+<div class="mb-4">{{ render_score_bar(d.overall_score, 100, 'Overall Compliance') }}</div>
+{% endif %}
+{% if d.get('compliance') is mapping %}
+<div class="grid sm:grid-cols-3 gap-3">
+  {% for framework, data in d.compliance.items() %}
+  <div class="rc-panel">
+    <div class="rc-panel-header">{{ framework | upper }}</div>
+    {% if data is mapping %}
+    <div class="text-2xl font-bold {% if data.get('score',0) > 70 %}text-emerald-400{% elif data.get('score',0) > 40 %}text-amber-400{% else %}text-red-400{% endif %} mb-1">{{ data.get('score', 0) }}<span class="text-xs text-gray-500">/100</span></div>
+    <div class="text-xs text-gray-500">{{ data.get('checks_passed',0) }}/{{ data.get('total_checks',0) }} checks passed</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{# ---------- Passive DNS History ---------- #}
+{% macro card_passive_dns(d) %}
+<div class="flex items-center gap-4 mb-3">
+  {{ render_stat(d.get('unique_ip_count', 0), 'Unique IPs') }}
+  {{ render_bool_status(d.get('fast_flux_detected', false), 'Fast-Flux Detected', 'No Fast-Flux', invert=true) }}
+</div>
+{% if d.get('sources') %}
+<div class="text-xs text-gray-500 mb-3">Sources: {{ d.sources | join(', ') }}</div>
+{% endif %}
+{% if d.get('records') %}
+{{ render_subsection('DNS Records History') }}
+{{ render_data_table(d.records, 20) }}
+{% endif %}
+{% endmacro %}
+
+
+{# ============================================================
+   DISPATCHER: Routes to explicit card or smart auto-renderer
+   ============================================================ #}
+
+{% macro render_module_card(key, value) %}
+  {# Error state — universal #}
+  {% if value is mapping and value.get('error') and value.keys() | list | length <= 2 %}
+    <div class="text-sm text-red-400"><i class="fas fa-exclamation-triangle mr-1"></i> {{ value.error }}</div>
+
+  {# Tier 1: Explicit cards #}
+  {% elif key == 'dns_records' %}{{ card_dns_records(value) }}
+  {% elif key == 'whois_lookup' %}{{ card_whois_lookup(value) }}
+  {% elif key in ('ssl_tls', 'tls') %}{{ card_ssl_tls(value) }}
+  {% elif key == 'cert_transparency' %}{{ card_cert_transparency(value) }}
+  {% elif key == 'asn_lookup' %}{{ card_asn_lookup(value) }}
+  {% elif key == 'virustotal' %}{{ card_virustotal(value) }}
+  {% elif key == 'shodan' %}{{ card_shodan(value) }}
+  {% elif key == 'greynoise' %}{{ card_greynoise(value) }}
+  {% elif key == 'abuseipdb' %}{{ card_abuseipdb(value) }}
+  {% elif key == 'ransomware_check' %}{{ card_ransomware_check(value) }}
+  {% elif key == 'dark_web_footprint' %}{{ card_dark_web_footprint(value) }}
+  {% elif key == 'reputation_timeline' %}{{ card_reputation_timeline(value) }}
+  {% elif key == 'infostealer_log_correlation' %}{{ card_infostealer_logs(value) }}
+  {% elif key == 'port_scan' %}{{ card_port_scan(value) }}
+  {% elif key == 'email_security' %}{{ card_email_security(value) }}
+  {% elif key == 'waf_detect' %}{{ card_waf_detect(value) }}
+  {% elif key == 'cors' %}{{ card_cors(value) }}
+  {% elif key == 'cookie_audit' %}{{ card_cookie_audit(value) }}
+  {% elif key == 'subdomain_takeover' %}{{ card_subdomain_takeover(value) }}
+  {% elif key == 'entropy_scan' %}{{ card_entropy_scan(value) }}
+  {% elif key == 'crawler' %}{{ card_crawler(value) }}
+  {% elif key in ('tech', 'fingerprint') %}{{ card_tech(value) }}
+  {% elif key == 'social_intel' %}{{ card_social_intel(value) }}
+  {% elif key == 'privacy_detect' %}{{ card_privacy_detect(value) }}
+  {% elif key == 'compliance_check' %}{{ card_compliance_check(value) }}
+  {% elif key == 'passive_dns_history' %}{{ card_passive_dns(value) }}
+
+  {# Tier 2+3: Smart auto-renderer #}
+  {% else %}
+    {{ render_smart(key, value, 0) }}
+  {% endif %}
+{% endmacro %}
+
+
+{# ============================================================
+   MODULE HEADER: Icon + smart status badge for card headers
+   ============================================================ #}
+
+{% macro module_icon(key) %}
+<i class="fas {{ MODULE_ICONS.get(key, 'fa-cube') }}"></i>
+{% endmacro %}
+
+{% macro module_status_badge(key, value) %}
+{% if value is mapping %}
+  {% if value.get('error') %}
+    <span class="badge badge-critical">Error</span>
+  {% elif value.get('grade') %}
+    <span class="badge {% if value.grade in ('A','A+','B') %}badge-ok{% elif value.grade == 'C' %}badge-medium{% else %}badge-critical{% endif %}">{{ value.grade }}</span>
+  {% elif value.get('score') is not none and value.score is number %}
+    <span class="badge {% if value.score > 70 %}badge-ok{% elif value.score > 40 %}badge-medium{% else %}badge-critical{% endif %}">{{ value.score }}{% if value.get('grade') %} ({{ value.grade }}){% endif %}</span>
+  {% elif value.get('vulnerable') is sameas true %}
+    <span class="badge badge-critical">Vulnerable</span>
+  {% elif value.get('vulnerable') is sameas false %}
+    <span class="badge badge-ok">Secure</span>
+  {% elif value.get('found') is sameas true %}
+    <span class="badge badge-high">Found</span>
+  {% elif value.get('rows') is iterable %}
+    <span class="badge badge-info">{{ value.rows | length }} rows</span>
+  {% elif value.get('total_found') is not none %}
+    <span class="badge badge-info">{{ value.total_found }}</span>
+  {% elif value.get('open_count') is not none %}
+    <span class="badge badge-info">{{ value.open_count }} open</span>
+  {% elif value.get('total_iocs') is not none %}
+    <span class="badge badge-info">{{ value.total_iocs }} IOCs</span>
+  {% elif value.get('mentions_found') is not none and value.mentions_found > 0 %}
+    <span class="badge badge-critical">{{ value.mentions_found }} mentions</span>
+  {% elif value.get('breach_hits') is not none and value.breach_hits > 0 %}
+    <span class="badge badge-critical">{{ value.breach_hits }} breaches</span>
+  {% elif value.get('status') == 'skipped' %}
+    <span class="badge badge-medium">Skipped</span>
+  {% else %}
+    <span class="badge badge-ok">OK</span>
+  {% endif %}
+{% elif value is iterable and value is not string %}
+  <span class="badge badge-info">{{ value | length }} items</span>
+{% else %}
+  <span class="badge badge-ok">OK</span>
+{% endif %}
+{% endmacro %}

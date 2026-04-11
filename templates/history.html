@@ -1,95 +1,104 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEGIS — Scan History</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/aegis.css">
-</head>
-<body class="aegis-dark">
-  <div class="particle-field">
-    <div class="dot" style="left:15%;animation-delay:0s"></div>
-    <div class="dot" style="left:50%;animation-delay:4s;background:var(--accent-purple)"></div>
-    <div class="dot" style="left:80%;animation-delay:7s"></div>
-  </div>
-  <div class="relative z-10 max-w-6xl mx-auto px-4 md:px-8 py-8">
-    <!-- Header -->
-    <div class="flex flex-wrap items-center justify-between gap-4 mb-8 animate-fade-up">
-      <div class="flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
-          <i class="fas fa-clock-rotate-left text-white text-xl"></i>
-        </div>
-        <div>
-          <h1 class="text-3xl font-extrabold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Scan History</h1>
-          <p class="text-gray-500 text-sm">Browse and compare previous threat hunts</p>
-        </div>
-      </div>
-      <div class="flex gap-3">
-        <a href="/scheduled" class="btn-aegis secondary"><i class="fas fa-calendar"></i> Scheduled</a>
-        <a href="/" class="btn-aegis primary"><i class="fas fa-plus"></i> New Scan</a>
-      </div>
-    </div>
+{% extends "base.html" %}
+{% block title %}AEGIS — Scan History{% endblock %}
 
-    <!-- Stats -->
-    <div class="metrics-grid mb-8 animate-fade-up animate-delay-1" style="grid-template-columns: repeat(4, 1fr)">
-      <div class="metric-tile" style="--tile-accent:var(--accent-blue)"><div class="tile-label">Total Scans</div><div class="tile-value">{{ items|length }}</div></div>
-      <div class="metric-tile" style="--tile-accent:var(--accent-green)"><div class="tile-label">This Week</div><div class="tile-value">{{ items[:7]|length }}</div></div>
-      <div class="metric-tile" style="--tile-accent:var(--accent-amber)"><div class="tile-label">Unique Targets</div><div class="tile-value">{{ items|map(attribute='url')|list|unique|list|length if items else 0 }}</div></div>
-      <div class="metric-tile" style="--tile-accent:var(--accent-purple)"><div class="tile-label">Latest</div><div class="tile-value text-base">{{ items[0]['scan_date'][:10] if items else 'None' }}</div></div>
-    </div>
-
-    <!-- Search -->
-    <div class="glass-tier-2 p-4 mb-6 animate-fade-up animate-delay-2">
-      <div class="flex flex-wrap gap-4 items-center">
-        <div class="flex-1 min-w-[250px] relative">
-          <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-600"></i>
-          <input id="histFilter" type="text" placeholder="Search by URL, date, or ID..." class="filter-input pl-11">
-        </div>
-        <div class="text-xs text-gray-500"><span id="resultCount" class="font-bold text-gray-300">{{ items|length }}</span> scans</div>
-      </div>
-    </div>
-
-    <!-- Scan List -->
-    <div id="scanList" class="space-y-3">
-      {% for it in items %}
-      <div class="history-entry" data-search="{{ it['url'] }} {{ it['scan_date'] }} {{ it['id'] }}">
-        <div class="w-10 h-10 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-400 flex-shrink-0">
-          <i class="fas fa-globe"></i>
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="font-semibold text-white truncate">{{ it['url'] }}</div>
-          <div class="text-[0.65rem] text-gray-500 flex items-center gap-3 mt-0.5">
-            <span><i class="fas fa-hashtag mr-0.5"></i>{{ it['id'] }}</span>
-            <span><i class="fas fa-calendar mr-0.5"></i>{{ it['scan_date'] }}</span>
-          </div>
-        </div>
-        <div class="flex gap-2 flex-shrink-0">
-          <a href="/view/{{ it['id'] }}" class="btn-aegis primary text-xs py-1.5"><i class="fas fa-eye"></i> View</a>
-          <a href="/graph/{{ it['id'] }}" class="btn-aegis secondary text-xs py-1.5"><i class="fas fa-diagram-project"></i></a>
-        </div>
-      </div>
-      {% endfor %}
-      {% if not items %}
-      <div class="glass-tier-1 p-16 text-center">
-        <i class="fas fa-inbox text-4xl text-gray-700 mb-4"></i>
-        <p class="text-gray-500 mb-4">No scans yet. Start your first threat hunt!</p>
-        <a href="/" class="btn-aegis primary"><i class="fas fa-rocket"></i> Start Scanning</a>
-      </div>
-      {% endif %}
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6)"><i class="fas fa-clock-rotate-left"></i></div>
+    <div>
+      <h1 class="page-title">Scan History</h1>
+      <p class="page-subtitle">Browse and manage previous threat hunts</p>
     </div>
   </div>
-  <script>
-    const input = document.getElementById('histFilter');
-    const rows = Array.from(document.querySelectorAll('.history-entry'));
-    const countEl = document.getElementById('resultCount');
+  <div style="display:flex;gap:0.5rem">
+    <a href="/scheduled" class="btn btn-secondary btn-sm"><i class="fas fa-calendar-check"></i> Scheduled</a>
+    <a href="/scan/new" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Scan</a>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="stat-card" style="--stat-accent: var(--accent-blue)">
+    <div class="stat-label">Total Scans</div>
+    <div class="stat-value text-blue-400">{{ items|length }}</div>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-emerald)">
+    <div class="stat-label">Showing</div>
+    <div class="stat-value text-emerald-400">{{ items|length }}</div>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-amber)">
+    <div class="stat-label">Targets</div>
+    <div class="stat-value text-amber-400">—</div>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-purple)">
+    <div class="stat-label">Latest</div>
+    <div class="stat-value text-purple-400 text-sm">{% if items %}{{ items[0]['scan_date'][:10] }}{% else %}None{% endif %}</div>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="glass-card no-hover p-4 mb-4">
+  <div class="flex flex-wrap items-center gap-4">
+    <div class="flex-1 min-w-[250px] relative">
+      <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+      <input id="histFilter" type="text" placeholder="Search by URL, date, or ID..." class="form-input" style="padding-left:2.5rem">
+    </div>
+    <div class="text-sm text-gray-400"><span id="resultCount">{{ items|length }}</span> scans</div>
+  </div>
+</div>
+
+<!-- Scan List -->
+<div id="scanList" class="space-y-2">
+  {% for it in items %}
+  <div class="glass-card p-4 flex flex-wrap items-center justify-between gap-4 hover:border-blue-500/30 transition-all" data-search="{{ it['url'] }} {{ it['scan_date'] }} {{ it['id'] }}">
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-400">
+        <i class="fas fa-globe"></i>
+      </div>
+      <div>
+        <div class="font-medium text-gray-200 truncate max-w-[500px]">{{ it['url'] }}</div>
+        <div class="text-xs text-gray-500 flex items-center gap-3 mt-1">
+          <span><i class="fas fa-hashtag mr-1"></i>{{ it['id'] }}</span>
+          <span><i class="fas fa-calendar mr-1"></i>{{ it['scan_date'] }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="/view/{{ it['id'] }}" class="btn btn-primary btn-sm"><i class="fas fa-eye"></i> View</a>
+      <a href="/graph/{{ it['id'] }}" class="btn btn-secondary btn-sm" title="Graph"><i class="fas fa-diagram-project"></i></a>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if not items %}
+  <div class="glass-card no-hover p-12 text-center">
+    <div class="empty-state">
+      <div class="empty-icon"><i class="fas fa-inbox"></i></div>
+      <div class="empty-title">No scans yet</div>
+      <div class="empty-desc">Start your first threat hunt to build your history.</div>
+      <a href="/scan/new" class="btn btn-primary"><i class="fas fa-rocket"></i> Start Scanning</a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const input = document.getElementById('histFilter');
+  const rows = Array.from(document.querySelectorAll('#scanList > div'));
+  const countEl = document.getElementById('resultCount');
+  if (input) {
     input.addEventListener('input', () => {
       const q = input.value.toLowerCase();
       let visible = 0;
-      rows.forEach(r => { const m = r.dataset.search.toLowerCase().includes(q); r.style.display = m ? '' : 'none'; if (m) visible++; });
-      countEl.textContent = visible;
+      rows.forEach(r => {
+        const match = (r.dataset.search || '').toLowerCase().includes(q);
+        r.style.display = match ? '' : 'none';
+        if (match) visible++;
+      });
+      if (countEl) countEl.textContent = visible;
     });
-  </script>
-</body>
-</html>
+  }
+</script>
+{% endblock %}

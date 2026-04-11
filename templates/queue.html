@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}AEGIS — Scan Queue{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-header-icon" style="background: linear-gradient(135deg, #10b981, #3b82f6)"><i class="fas fa-list-ul"></i></div>
+    <div>
+      <h1 class="page-title">Scan Queue</h1>
+      <p class="page-subtitle">Monitor active and queued threat hunts</p>
+    </div>
+  </div>
+  <div style="display:flex;gap:0.5rem">
+    <a href="/scan/new" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Scan</a>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="stat-card" style="--stat-accent: var(--accent-emerald)">
+    <div class="stat-label">Active Scans</div>
+    <div class="stat-value text-emerald-400">{{ active|length }}</div>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-amber)">
+    <div class="stat-label">Queued Scans</div>
+    <div class="stat-value text-amber-400">{{ reserved|length }}</div>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-blue)">
+    <div class="stat-label">Completed</div>
+    <div class="stat-value text-blue-400">{{ done|length }}</div>
+  </div>
+  <div class="stat-card" style="--stat-accent: var(--accent-purple)">
+    <div class="stat-label">Total Work</div>
+    <div class="stat-value text-purple-400">{{ active|length + reserved|length + done|length }}</div>
+  </div>
+</div>
+
+<!-- Active Scans List -->
+<h2 class="text-xl font-semibold mb-4 text-white flex items-center gap-2"><i class="fas fa-spinner fa-spin text-emerald-400"></i> Active Tasks</h2>
+<div class="space-y-2 mb-8">
+  {% for it in active %}
+  <div class="glass-card p-4 flex flex-wrap items-center justify-between gap-4 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)] transition-all">
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
+        <i class="fas fa-bolt"></i>
+      </div>
+      <div>
+        <div class="font-medium text-gray-200 truncate max-w-[500px]">{% if it.args %}{{ it.args[0] }}{% else %}Unknown Target{% endif %}</div>
+        <div class="text-xs text-gray-500 flex items-center gap-3 mt-1">
+          <span><i class="fas fa-hashtag mr-1"></i>{{ it.id }}</span>
+          <span class="text-emerald-400"><i class="fas fa-play-circle mr-1"></i>Running</span>
+          {% if it.completed_modules %}
+          <span class="text-emerald-300"><i class="fas fa-check mr-1"></i>{{ it.completed_modules|length }} modules done</span>
+          {% endif %}
+        </div>
+        {% if it.completed_modules %}
+        <div class="flex flex-wrap gap-1 mt-2">
+          {% for mod in it.completed_modules[-8:] %}
+          <span class="text-[0.65rem] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">{{ mod }}</span>
+          {% endfor %}
+          {% if it.completed_modules|length > 8 %}
+          <span class="text-[0.65rem] px-2 py-0.5 rounded-full bg-gray-500/15 text-gray-400">+{{ it.completed_modules|length - 8 }} more</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if not active %}
+  <div class="glass-card no-hover p-8 text-center border-dashed border-2 border-gray-600/50">
+    <div class="empty-state" style="margin:0;padding:1rem 0">
+      <div class="empty-icon text-gray-500" style="background:transparent;margin-bottom:0px"><i class="fas fa-check-circle" style="font-size:1.5rem"></i></div>
+      <div class="empty-title text-gray-400 !mt-2" style="font-size:1rem;margin-bottom:0">No active scans</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Queued Scans List -->
+<h2 class="text-xl font-semibold mb-4 text-white flex items-center gap-2"><i class="fas fa-list-ol text-amber-400"></i> Queued Tasks</h2>
+<div class="space-y-2 mb-8">
+  {% for it in reserved %}
+  <div class="glass-card p-4 flex flex-wrap items-center justify-between gap-4 border-amber-500/30 transition-all">
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 rounded-lg bg-amber-500/15 flex items-center justify-center text-amber-400">
+        <i class="fas fa-clock"></i>
+      </div>
+      <div>
+        <div class="font-medium text-gray-200 truncate max-w-[500px]">{% if it.args %}{{ it.args[0] }}{% else %}Unknown Target{% endif %}</div>
+        <div class="text-xs text-gray-500 flex items-center gap-3 mt-1">
+          <span><i class="fas fa-hashtag mr-1"></i>{{ it.id }}</span>
+          <span class="text-amber-400"><i class="fas fa-pause-circle mr-1"></i>Waiting in queue</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if not reserved %}
+  <div class="glass-card no-hover p-8 text-center border-dashed border-2 border-gray-600/50">
+    <div class="empty-state" style="margin:0;padding:1rem 0">
+      <div class="empty-title text-gray-400 !mt-2" style="font-size:1rem;margin:0">Queue is empty</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Completed / Failed Tasks -->
+<h2 class="text-xl font-semibold mb-4 text-white flex items-center gap-2"><i class="fas fa-flag-checkered text-blue-400"></i> Recently Completed</h2>
+<div class="space-y-2">
+  {% for it in done %}
+  <div class="glass-card p-4 flex flex-wrap items-center justify-between gap-4 {% if it.state == 'SUCCESS' %}border-green-500/20{% else %}border-red-500/20{% endif %} transition-all">
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 rounded-lg {% if it.state == 'SUCCESS' %}bg-green-500/15 text-green-400{% else %}bg-red-500/15 text-red-400{% endif %} flex items-center justify-center">
+        <i class="fas {% if it.state == 'SUCCESS' %}fa-check-circle{% else %}fa-times-circle{% endif %}"></i>
+      </div>
+      <div>
+        <div class="font-medium text-gray-200 truncate max-w-[500px]">{% if it.args %}{{ it.args[0] }}{% else %}Unknown{% endif %}</div>
+        <div class="text-xs text-gray-500 flex items-center gap-3 mt-1">
+          <span><i class="fas fa-hashtag mr-1"></i>{{ it.id }}</span>
+          {% if it.state == 'SUCCESS' %}
+          <span class="text-green-400"><i class="fas fa-check mr-1"></i>Completed</span>
+          {% else %}
+          <span class="text-red-400"><i class="fas fa-exclamation-triangle mr-1"></i>{{ it.error or 'Failed' }}</span>
+          {% endif %}
+          {% if it.scan_date %}<span>{{ it.scan_date }}</span>{% endif %}
+        </div>
+      </div>
+    </div>
+    {% if it.state == 'SUCCESS' and it.scan_id %}
+    <a href="/view/{{ it.scan_id }}" class="btn btn-primary btn-sm"><i class="fas fa-eye mr-1"></i> View Results</a>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% if not done %}
+  <div class="glass-card no-hover p-8 text-center border-dashed border-2 border-gray-600/50">
+    <div class="empty-state" style="margin:0;padding:1rem 0">
+      <div class="empty-title text-gray-400 !mt-2" style="font-size:1rem;margin:0">No completed tasks yet</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  // Auto-refresh only if there are active/pending tasks
+  {% if active or reserved %}
+  setTimeout(() => { window.location.reload(); }, 5000);
+  {% endif %}
+</script>
+{% endblock %}

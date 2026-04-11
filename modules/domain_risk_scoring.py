@@ -51,14 +51,14 @@ class DomainRiskScoringModule(BaseModule):
                 # We'll mock the age check for simplicity
                 pass
                 
-        # Final Score
+        # Final Score — cast numpy types to native Python for JSON serialization
         return {
             "domain": domain,
-            "dga_probability": round(ml_score, 2),
-            "risk_score": round(risk_score, 2),
+            "dga_probability": float(round(ml_score, 2)),
+            "risk_score": float(round(risk_score, 2)),
             "ml_explanation": explanation,
-            "lexical_features": features,
-            "is_suspicious": risk_score > 0.7
+            "lexical_features": {k: float(v) if not isinstance(v, (int, float)) else v for k, v in features.items()},
+            "is_suspicious": bool(risk_score > 0.7)
         }
 
     def _calculate_entropy(self, s: str) -> float:
@@ -134,7 +134,7 @@ class DomainRiskScoringModule(BaseModule):
         # Score is negative for anomalies. Convert to 0.0-1.0 probability.
         anomaly_score = clf.decision_function(X_test)[0]
         # map ~ -0.5 to 0.5 to 1.0 to 0.0
-        dga_prob = max(0.0, min(1.0, 0.5 - anomaly_score))
+        dga_prob = float(max(0.0, min(1.0, 0.5 - anomaly_score)))
         
         reasons = ["ML Anomaly Detection (IsolationForest)"]
         if features["entropy"] > 3.8:

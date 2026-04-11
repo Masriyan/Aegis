@@ -32,8 +32,6 @@ shodan>=1.31.0
 
 # === Background Jobs ===
 APScheduler>=3.10.0
-celery>=5.3.6
-redis>=5.0.1
 
 # === PDF Export ===
 # WeasyPrint can be tricky on Windows, skip if problematic
